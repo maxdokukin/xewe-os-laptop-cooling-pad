@@ -10,7 +10,7 @@
 // Config.h
 
 // Automatically updated by build.sh
-#define PROJECT_NAME "xewe-os"
-#define BUILD_VERSION "2.1.124"
-#define BUILD_TIMESTAMP "2026-03-21T23:21:19Z"
+#define PROJECT_NAME "xewe-os-laptop-cooling-pad"
+#define BUILD_VERSION "0.0.1"
+#define BUILD_TIMESTAMP "2026-03-21T23:46:02Z"
 // /Automatically updated by build.sh

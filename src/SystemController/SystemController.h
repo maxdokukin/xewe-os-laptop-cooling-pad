@@ -15,8 +15,7 @@
 #include "../Modules/Software/System/System.h"
 #include "../Modules/Software/CommandParser/CommandParser.h"
 #include "../Modules/Hardware/Nvs/Nvs.h"
-#include "../Modules/Hardware/Pins/Pins.h"
-#include "../Modules/Hardware/Buttons/Buttons.h"
+#include "../Modules/Hardware/Fan/Fan.h"
 #include "../Modules/Software/Wifi/Wifi.h"
 #include "../Modules/Software/WebInterface/WebInterface.h"
 
@@ -34,8 +33,7 @@ public:
     Nvs                         nvs;
     System                      system;
     CommandParser               command_parser;
-    Pins                        pins;
-    Buttons                     buttons;
+    Fan                         fan;
     Wifi                        wifi;
     WebInterface                web_interface;
 

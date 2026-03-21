@@ -16,8 +16,7 @@ SystemController::SystemController()
   , nvs(*this)
   , system(*this)
   , command_parser(*this)
-  , pins(*this)
-  , buttons(*this)
+  , fan(*this)
   , wifi(*this)
   , web_interface(*this)
 {
@@ -25,8 +24,7 @@ SystemController::SystemController()
     modules.push_back(&nvs);
     modules.push_back(&system);
     modules.push_back(&command_parser);
-    modules.push_back(&pins);
-    modules.push_back(&buttons);
+    modules.push_back(&fan);
     modules.push_back(&wifi);
     modules.push_back(&web_interface);
 }
@@ -37,8 +35,7 @@ void SystemController::begin() {
     serial_port.begin               (SerialPortConfig       {});
     nvs.begin                       (NvsConfig              {});
     system.begin                    (SystemConfig           {});
-    pins.begin                      (PinsConfig             {});
-    buttons.begin                   (ButtonsConfig          {});
+    fan.begin                       (FanConfig              {});
     wifi.begin                      (WifiConfig             {});
     web_interface.add_requirement   (wifi);
     web_interface.begin             (WebInterfaceConfig     {});
