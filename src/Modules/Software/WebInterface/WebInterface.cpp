@@ -105,7 +105,6 @@ void WebInterface::handle_not_found() {
 void WebInterface::serve_main_page() {
     if (is_disabled()) return;
     send_cors_headers();
-    // Removed WebInterface:: prefix so it accesses the global variable
     http_server.send_P(200, "text/html", INDEX_HTML);
 }
 
@@ -198,11 +197,10 @@ void WebInterface::handle_ui_config_post() {
         return;
     }
 
-    // 1. Process Curve Edge Colors (ArduinoJson v7 syntax)
+    // 1. Process Curve Edge Colors
     if (doc["curve_edge_colors"].is<JsonObject>()) {
         JsonObject colors = doc["curve_edge_colors"];
 
-        // Use !isNull() or .is<const char*>()
         if (!colors["start"].isNull()) {
             controller.temp_controller.set_cold_color(colors["start"].as<std::string>());
         }
@@ -211,12 +209,24 @@ void WebInterface::handle_ui_config_post() {
         }
     }
 
-    // 2. Process Temp Curve (ArduinoJson v7 syntax)
+    // 2. Process Temp Curve (Clear old, insert new)
     if (doc["temp_curve"].is<JsonArray>()) {
         JsonArray incCurve = doc["temp_curve"].as<JsonArray>();
 
+        // STEP A: Fetch the current state and remove all existing points
+        JsonDocument current_state_doc;
+        deserializeJson(current_state_doc, controller.temp_controller.get_json());
+
+        if (current_state_doc["temp_curve"].is<JsonArray>()) {
+            for (JsonVariant v : current_state_doc["temp_curve"].as<JsonArray>()) {
+                if (!v["temp"].isNull()) {
+                    controller.temp_controller.remove_point(v["temp"].as<float>());
+                }
+            }
+        }
+
+        // STEP B: Add the fresh points from the UI payload
         for (JsonVariant v : incCurve) {
-            // Check if both keys exist and aren't null
             if (!v["temp"].isNull() && !v["speed"].isNull()) {
                 float t = v["temp"].as<float>();
                 uint8_t s = v["speed"].as<uint8_t>();
@@ -225,7 +235,7 @@ void WebInterface::handle_ui_config_post() {
         }
     }
 
-    // Send the updated config back
+    // 3. Return the fresh, newly updated JSON state back to the UI
     std::string response = "{\"ok\":true,\"ui_config\":" + controller.temp_controller.get_json() + "}";
     http_server.send(200, "application/json", response.c_str());
 }
