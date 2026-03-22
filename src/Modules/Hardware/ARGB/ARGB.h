@@ -32,7 +32,7 @@ public:
     bool                        set_state                   (uint8_t pin, bool state);
     bool                        set_rgb                     (uint8_t pin, uint8_t r, uint8_t g, uint8_t b);
 
-    // New API to return ARGB data in JSON format
+    // API to return ARGB data in JSON format
     std::string                 get_json                    ()                              const;
 
 private:
@@ -61,6 +61,7 @@ private:
     void                        cli_remove                  (std::string_view args);
     void                        cli_set_state               (std::string_view args);
     void                        cli_set_rgb                 (std::string_view args);
+    void                        cli_print_json              (std::string_view args);
 
     std::vector<ARGBData*>      leds;
     bool                        loaded_from_nvs             {false};

@@ -11,6 +11,7 @@ ARGB::ARGB(SystemController& controller)
     commands_storage.push_back({ "remove", "Remove an LED strip by its pin: <pin>", std::string("$") + lower(module_name) + " remove 4", 1, [this](std::string_view args){ cli_remove(args); } });
     commands_storage.push_back({ "set_state", "Turn LED strip on/off: <pin> <1|0>", std::string("$") + lower(module_name) + " set_state 4 1", 2, [this](std::string_view args){ cli_set_state(args); } });
     commands_storage.push_back({ "set_rgb", "Set RGB color: <pin> <r> <g> <b>", std::string("$") + lower(module_name) + " set_rgb 4 255 0 0", 4, [this](std::string_view args){ cli_set_rgb(args); } });
+    commands_storage.push_back({ "print_json", "Print ARGB data in JSON format", std::string("$") + lower(module_name) + " print_json", 0, [this](std::string_view args){ cli_print_json(args); } });
 }
 
 ARGB::~ARGB() {
@@ -21,8 +22,7 @@ ARGB::~ARGB() {
 
 void ARGB::begin_routines_init(const ModuleConfig& cfg) {
     DBG_PRINTF(ARGB, "begin_routines_init(): Initialization routines run.\n");
-    // Removed hardcoded add(6) and add(7) here so NVS data isn't overwritten on boot.
-    // They are now handled in begin_routines_regular after NVS is checked.
+    // Handled in begin_routines_regular after NVS is checked.
 }
 
 void ARGB::begin_routines_regular(const ModuleConfig& cfg) {
@@ -199,6 +199,10 @@ void ARGB::cli_set_rgb(std::string_view args) {
     else controller.serial_port.print("Failed to update RGB.");
 }
 
+void ARGB::cli_print_json(std::string_view args) {
+    controller.serial_port.print(get_json());
+}
+
 // --- NVS Storage Helpers ---
 
 std::string ARGB::serialize_led(const ARGBData* l) const {
@@ -209,7 +213,6 @@ std::string ARGB::serialize_led(const ARGBData* l) const {
 
 bool ARGB::deserialize_led(const std::string& config, ARGBData* l) const {
     unsigned int pin, state, r, g, b;
-    // Updated sscanf to use standard unsigned ints to prevent memory corruption when casting directly to uint8_t
     if (sscanf(config.c_str(), "%u %u %u %u %u", &pin, &state, &r, &g, &b) != 5) return false;
 
     l->pin = static_cast<uint8_t>(pin);

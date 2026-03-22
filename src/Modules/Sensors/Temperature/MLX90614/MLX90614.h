@@ -29,7 +29,7 @@ public:
     float                       get_ambient_temp            () const;
     bool                        is_online                   () const;
     bool                        set_i2c_address             (uint8_t new_address);
-    std::string                 get_json                    () const; // <-- Added get_json API
+    std::string                 get_json                    () const;
 
 private:
     float                       read_i2c_temp               (uint8_t register_address) const;
@@ -41,6 +41,7 @@ private:
     void                        cli_scan                    (std::string_view args);
     void                        cli_set_addr                (std::string_view args);
     void                        cli_set_pins                (std::string_view args);
+    void                        cli_print_json              (std::string_view args); // <-- Added CLI handler
 
     // State & Cache
     float                       cached_object_temp          {0.0f};

@@ -3,7 +3,7 @@
 #include "../../../../Debug.h"
 #include <Wire.h>
 #include <cmath>
-#include <ArduinoJson.h> // <-- Added ArduinoJson Library
+#include <ArduinoJson.h>
 
 MLX90614::MLX90614(SystemController& controller)
       : Module(controller, "MLX90614", "Contactless I2C Temperature Sensor", "temp", true, false, true)
@@ -14,6 +14,7 @@ MLX90614::MLX90614(SystemController& controller)
     commands_storage.push_back({ "scan", "Scan the I2C bus for connected devices", "$temp scan", 0, [this](std::string_view args){ cli_scan(args); } });
     commands_storage.push_back({ "set_addr", "Set the I2C address (Hex format, e.g., 0x5A)", "$temp set_addr 0x5A", 1, [this](std::string_view args){ cli_set_addr(args); } });
     commands_storage.push_back({ "set_pins", "Set I2C SDA and SCL pins: <sda> <scl>", "$temp set_pins 21 22", 2, [this](std::string_view args){ cli_set_pins(args); } });
+    commands_storage.push_back({ "print_json", "Print sensor data in JSON format", "$temp print_json", 0, [this](std::string_view args){ cli_print_json(args); } }); // <-- Added command registration
 }
 
 void MLX90614::begin_routines_init(const ModuleConfig& cfg) {
@@ -169,7 +170,7 @@ bool MLX90614::set_i2c_address(uint8_t new_address) {
 std::string MLX90614::get_json() const {
     if (is_disabled()) return "{}";
 
-    JsonDocument doc; // Added ArduinoJson implementation
+    JsonDocument doc;
 
     doc["module"] = "MLX90614";
     doc["online"] = sensor_online;
@@ -317,4 +318,12 @@ void MLX90614::cli_set_pins(std::string_view args_sv) {
     } else {
         controller.serial_port.print("Usage error. Expected: $temp set_pins <sda> <scl>");
     }
+}
+
+void MLX90614::cli_print_json(std::string_view args_sv) {
+    // Suppress unused param warning since this command doesn't need args
+    (void)args_sv;
+
+    // Call the get_json method and pipe it straight out to the serial port
+    controller.serial_port.print(get_json());
 }

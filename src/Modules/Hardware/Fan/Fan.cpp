@@ -65,6 +65,12 @@ Fan::Fan(SystemController& controller)
                 this->controller.serial_port.print("Failed to remove fan.");
         }
     });
+
+    commands_storage.push_back({ "print_json", "Prints the current fan data as a JSON string", std::string("$") + lower(module_name) + " print_json", 0,
+        [this](std::string_view args) {
+            this->controller.serial_port.print(this->get_json());
+        }
+    });
 }
 
 Fan::~Fan() {
