@@ -4,12 +4,6 @@
 #include "../../../SystemController/SystemController.h"
 #include <ArduinoJson.h>
 
-// --- Auto-Generated Web Files ---
-// Adjust these relative paths to point to where your headers actually live!
-#include "../../../templates/index_html.h"
-#include "../../../static/styles_css.h"
-#include "../../../static/script_js.h"
-// --------------------------------
 
 WebInterface::WebInterface(SystemController& controller)
       : Module(controller,

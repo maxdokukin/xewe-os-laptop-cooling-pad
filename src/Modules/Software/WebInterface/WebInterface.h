@@ -1,12 +1,3 @@
-/*********************************************************************************
- *  SPDX-License-Identifier: LicenseRef-PolyForm-NC-1.0.0-NoAI
- *
- *  Licensed under PolyForm Noncommercial 1.0.0 + No AI Use Addendum v1.0.
- *  See: LICENSE and LICENSE-NO-AI.md in the project root for full terms.
- *
- *  Required Notice: Copyright 2025 Maxim Dokukin (https://maxdokukin.com)
- *  https://github.com/maxdokukin/xewe-os
- *********************************************************************************/
 // src/Modules/Software/WebInterface/WebInterface.h
 #pragma once
 
@@ -17,9 +8,11 @@
 #include <sstream>
 #include <iomanip>
 
+// --- Auto-Generated Web Files ---
 #include "templates/index_html.h"
 #include "static/script_js.h"
 #include "static/styles_css.h"
+// --------------------------------
 
 struct WebInterfaceConfig : public ModuleConfig {};
 
@@ -54,9 +47,4 @@ private:
     void                        handle_mlx90614_data        ();
     void                        handle_ui_config_get        ();
     void                        handle_ui_config_post       ();
-
-    // External PROGMEM declarations (ensure these headers/variables are linked in your build)
-    static const char           INDEX_HTML                  [] PROGMEM;
-    static const char           STYLES_CSS                  [] PROGMEM;
-    static const char           SCRIPT_JS                   [] PROGMEM;
 };

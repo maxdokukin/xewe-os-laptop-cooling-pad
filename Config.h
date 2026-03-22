@@ -11,6 +11,6 @@
 
 // Automatically updated by build.sh
 #define PROJECT_NAME "xewe-os-laptop-cooling-pad"
-#define BUILD_VERSION "0.0.40"
-#define BUILD_TIMESTAMP "2026-03-22T20:16:24Z"
+#define BUILD_VERSION "0.0.41"
+#define BUILD_TIMESTAMP "2026-03-22T20:25:05Z"
 // /Automatically updated by build.sh

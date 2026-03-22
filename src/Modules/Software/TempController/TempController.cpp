@@ -85,27 +85,26 @@ std::string TempController::status(const bool verbose) const {
     return s;
 }
 
+#include <ArduinoJson.h>
+
 std::string TempController::get_json() const {
-#if ARDUINOJSON_VERSION_MAJOR >= 7
+    // Allocate JSON document
     JsonDocument doc;
-#else
-    DynamicJsonDocument doc(1024);
-#endif
 
-    doc["cold_color"] = cold_color;
-    doc["hot_color"] = hot_color;
+    // 1. Map internal colors to the UI's expected "curve_edge_colors" object
+    JsonObject colors = doc["curve_edge_colors"].to<JsonObject>();
+    colors["start"] = cold_color;
+    colors["end"] = hot_color;
 
-    JsonArray array = doc["curve"].to<JsonArray>();
-    for (const auto& p : curve) {
-#if ARDUINOJSON_VERSION_MAJOR >= 7
-        JsonObject obj = array.add<JsonObject>();
-#else
-        JsonObject obj = array.createNestedObject();
-#endif
-        obj["temp"] = p.temp;
-        obj["fan_speed"] = p.fan_speed;
+    // 2. Map internal curve to the UI's expected "temp_curve" array
+    JsonArray curve_arr = doc["temp_curve"].to<JsonArray>();
+    for (const auto& point : curve) {
+        JsonObject p = curve_arr.add<JsonObject>();
+        p["temp"] = point.temp;
+        p["speed"] = point.fan_speed; // Translate internal 'fan_speed' to UI 'speed'
     }
 
+    // Serialize and return
     std::string output;
     serializeJson(doc, output);
     return output;
