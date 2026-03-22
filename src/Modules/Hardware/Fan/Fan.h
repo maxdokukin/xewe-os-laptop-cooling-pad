@@ -24,13 +24,12 @@ public:
                                                              const bool keep_enabled=true)  override;
     std::string                 status                      (const bool verbose=false)      const override;
 
-    // Core module methods
-    bool                        add_fan                     (uint8_t pwm_pin);
-    bool                        add_fan_w_tach              (uint8_t pwm_pin, uint8_t tach_pin);
-    bool                        remove_fan                  (uint8_t pwm_pin);
-    bool                        set_fan_speed               (uint8_t pwm_pin, uint8_t speed);
-
-    // API to get the final stabilized RPM
+    // Core API Methods
+    bool                        add                         (uint8_t pwm_pin);
+    bool                        add_w_tach                  (uint8_t pwm_pin, uint8_t tach_pin);
+    bool                        remove                      (uint8_t pwm_pin);
+    bool                        set                         (uint8_t pwm_pin, uint8_t speed);
+    bool                        set_all                     (uint8_t speed);
     uint32_t                    get_rpm                     (uint8_t pwm_pin)               const;
 
 private:
@@ -67,6 +66,7 @@ private:
     void                        cli_add                     (std::string_view args);
     void                        cli_add_w_tach              (std::string_view args);
     void                        cli_set                     (std::string_view args);
+    void                        cli_set_all                 (std::string_view args);
     void                        cli_remove                  (std::string_view args);
 
     std::vector<FanData*>       fans;

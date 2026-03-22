@@ -1,6 +1,6 @@
 #include "Fan.h"
 #include "../../../SystemController/SystemController.h"
-#include "../../../Debug.h"
+#include "../../Debug.h"
 
 #ifndef IRAM_ATTR
 #define IRAM_ATTR
@@ -21,6 +21,7 @@ Fan::Fan(SystemController& controller)
     commands_storage.push_back({ "add", "Add a fan without a tachometer: <pwm_pin>", std::string("$") + lower(module_name) + " add 9", 1, [this](std::string_view args){ cli_add(args); } });
     commands_storage.push_back({ "add_w_tach", "Add a fan with a tachometer: <pwm_pin> <tach_pin>", std::string("$") + lower(module_name) + " add_w_tach 9 10", 2, [this](std::string_view args){ cli_add_w_tach(args); } });
     commands_storage.push_back({ "set", "Set the speed of a specific fan: <pwm_pin> <val>", std::string("$") + lower(module_name) + " set 9 255", 2, [this](std::string_view args){ cli_set(args); } });
+    commands_storage.push_back({ "set_all", "Set the speed of all configured fans: <val>", std::string("$") + lower(module_name) + " set_all 255", 1, [this](std::string_view args){ cli_set_all(args); } });
     commands_storage.push_back({ "remove", "Remove a fan by its PWM pin: <pwm_pin>", std::string("$") + lower(module_name) + " remove 9", 1, [this](std::string_view args){ cli_remove(args); } });
 }
 
@@ -63,18 +64,12 @@ void Fan::loop() {
                 uint32_t current_rpm = (pulses * 30000) / dt;
                 fan->last_calc_time = current_time;
 
-                // 1. Absolute Filter: Ignore scientifically absurd EMI spikes
-                if (current_rpm > absolute_max_rpm) {
-                    continue;
-                }
+                if (current_rpm > absolute_max_rpm) continue;
 
-                // 2. Push to Circular Buffer for Median Filter
                 fan->raw_history[fan->history_idx] = current_rpm;
                 fan->history_idx = (fan->history_idx + 1) % 3;
                 if (fan->history_count < 3) fan->history_count++;
 
-                // 3. Fast Branchless Median Filter of last 3 readings
-                // Kills isolated single-sample outliers instantly
                 uint32_t median_rpm = current_rpm;
                 if (fan->history_count == 3) {
                     uint32_t a = fan->raw_history[0];
@@ -83,17 +78,12 @@ void Fan::loop() {
                     median_rpm = std::max(std::min(a, b), std::min(std::max(a, b), c));
                 }
 
-                // 4. EMA Smoothing & Zero-Recovery
                 if (fan->ema_rpm == 0 && median_rpm > 0) {
-                    // Instant wake-up to bypass mathematical drag
                     fan->ema_rpm = median_rpm;
                 } else {
-                    // Standard EMA formula
                     fan->ema_rpm = static_cast<uint32_t>((ema_alpha * median_rpm) + ((1.0f - ema_alpha) * fan->ema_rpm));
                 }
 
-                // 5. UI Hysteresis / Rounding
-                // Locks the UI display to a solid multiple (e.g. 1200 instead of 1198, 1202)
                 if (ui_rounding > 0) {
                     uint32_t half_round = ui_rounding / 2;
                     fan->displayed_rpm = ((fan->ema_rpm + half_round) / ui_rounding) * ui_rounding;
@@ -143,7 +133,7 @@ std::string Fan::status(const bool verbose) const {
     return s;
 }
 
-// --- Core Methods ---
+// --- Core API Methods ---
 
 uint32_t Fan::get_rpm(uint8_t pwm_pin) const {
     for (const auto fan : fans) {
@@ -154,7 +144,7 @@ uint32_t Fan::get_rpm(uint8_t pwm_pin) const {
     return 0;
 }
 
-bool Fan::add_fan(uint8_t pwm_pin) {
+bool Fan::add(uint8_t pwm_pin) {
     if (is_disabled()) return false;
     for (const auto fan : fans) if (fan->pin_pwm == pwm_pin) return false;
 
@@ -166,10 +156,11 @@ bool Fan::add_fan(uint8_t pwm_pin) {
     analogWrite(new_fan->pin_pwm, new_fan->speed);
 
     fans.push_back(new_fan);
+    save_all_to_nvs(); // Automatically sync state
     return true;
 }
 
-bool Fan::add_fan_w_tach(uint8_t pwm_pin, uint8_t tach_pin) {
+bool Fan::add_w_tach(uint8_t pwm_pin, uint8_t tach_pin) {
     if (is_disabled()) return false;
     for (const auto fan : fans) if (fan->pin_pwm == pwm_pin) return false;
 
@@ -185,10 +176,11 @@ bool Fan::add_fan_w_tach(uint8_t pwm_pin, uint8_t tach_pin) {
     analogWrite(new_fan->pin_pwm, new_fan->speed);
 
     fans.push_back(new_fan);
+    save_all_to_nvs(); // Automatically sync state
     return true;
 }
 
-bool Fan::remove_fan(uint8_t pwm_pin) {
+bool Fan::remove(uint8_t pwm_pin) {
     if (is_disabled()) return false;
 
     auto it = std::remove_if(fans.begin(), fans.end(), [pwm_pin](FanData* f) { return f->pin_pwm == pwm_pin; });
@@ -199,77 +191,103 @@ bool Fan::remove_fan(uint8_t pwm_pin) {
         analogWrite(pwm_pin, 0);
         delete target;
         fans.erase(it, fans.end());
+
+        save_all_to_nvs(); // Automatically sync state
         return true;
     }
     return false;
 }
 
-bool Fan::set_fan_speed(uint8_t pwm_pin, uint8_t speed) {
+bool Fan::set(uint8_t pwm_pin, uint8_t speed) {
     if (is_disabled()) return false;
 
     for (auto fan : fans) {
         if (fan->pin_pwm == pwm_pin) {
             fan->speed = speed;
             analogWrite(fan->pin_pwm, fan->speed);
+            save_all_to_nvs(); // Automatically sync state
             return true;
         }
     }
     return false;
 }
 
-// --- CLI Handlers ---
+bool Fan::set_all(uint8_t speed) {
+    if (is_disabled() || fans.empty()) return false;
+
+    for (auto fan : fans) {
+        fan->speed = speed;
+        analogWrite(fan->pin_pwm, fan->speed);
+    }
+
+    save_all_to_nvs(); // Sync state once for all fans
+    return true;
+}
+
+// --- CLI Handlers (Streamlined) ---
 
 void Fan::cli_add(std::string_view args_sv) {
     std::string args(args_sv); trim(args);
-    if (is_disabled() || args.empty()) return;
+    if (args.empty()) return;
 
-    uint8_t pwm_pin = static_cast<uint8_t>(std::stoi(args));
-    if (add_fan(pwm_pin)) {
-        save_all_to_nvs();
+    if (add(static_cast<uint8_t>(std::stoi(args)))) {
         controller.serial_port.print("Fan added successfully.");
+    } else {
+        controller.serial_port.print("Failed to add fan. Module disabled or pin already in use.");
     }
 }
 
 void Fan::cli_add_w_tach(std::string_view args_sv) {
     std::string args(args_sv); trim(args);
-    if (is_disabled()) return;
-
     auto sp = args.find(' ');
     if (sp == std::string::npos) return;
 
     uint8_t pwm_pin = static_cast<uint8_t>(std::stoi(args.substr(0, sp)));
     uint8_t tach_pin = static_cast<uint8_t>(std::stoi(args.substr(sp + 1)));
 
-    if (add_fan_w_tach(pwm_pin, tach_pin)) {
-        save_all_to_nvs();
+    if (add_w_tach(pwm_pin, tach_pin)) {
         controller.serial_port.print("Fan with tach added successfully.");
+    } else {
+        controller.serial_port.print("Failed to add fan. Module disabled or pin already in use.");
     }
 }
 
 void Fan::cli_set(std::string_view args_sv) {
     std::string args(args_sv); trim(args);
-    if (is_disabled()) return;
-
     auto sp = args.find(' ');
     if (sp == std::string::npos) return;
 
     uint8_t pwm_pin = static_cast<uint8_t>(std::stoi(args.substr(0, sp)));
     uint8_t speed = static_cast<uint8_t>(std::stoi(args.substr(sp + 1)));
 
-    if (set_fan_speed(pwm_pin, speed)) {
-        save_all_to_nvs();
+    if (set(pwm_pin, speed)) {
         controller.serial_port.print("Fan speed updated.");
+    } else {
+        controller.serial_port.print("Failed to set fan speed. Fan not found.");
+    }
+}
+
+void Fan::cli_set_all(std::string_view args_sv) {
+    std::string args(args_sv); trim(args);
+    if (args.empty()) return;
+
+    uint8_t speed = static_cast<uint8_t>(std::stoi(args));
+
+    if (set_all(speed)) {
+        controller.serial_port.print("All fans set to new speed.");
+    } else {
+        controller.serial_port.print("Failed to set fans. Module disabled or no fans configured.");
     }
 }
 
 void Fan::cli_remove(std::string_view args_sv) {
     std::string args(args_sv); trim(args);
-    if (is_disabled() || args.empty()) return;
+    if (args.empty()) return;
 
-    uint8_t pwm_pin = static_cast<uint8_t>(std::stoi(args));
-    if (remove_fan(pwm_pin)) {
-        save_all_to_nvs();
+    if (remove(static_cast<uint8_t>(std::stoi(args)))) {
         controller.serial_port.print("Fan removed successfully.");
+    } else {
+        controller.serial_port.print("Failed to remove fan. Fan not found.");
     }
 }
 
