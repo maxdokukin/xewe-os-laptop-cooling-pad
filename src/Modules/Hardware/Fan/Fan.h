@@ -3,8 +3,14 @@
 #include "../../Module/Module.h"
 #include <vector>
 #include <string>
+#include <algorithm>
 
-struct FanConfig : public ModuleConfig {};
+struct FanConfig : public ModuleConfig {
+    // Industry-Grade Filtering Parameters
+    float    ema_alpha = 0.3f;           // Smoothing factor (0.0 to 1.0)
+    uint32_t absolute_max_rpm = 10000;   // Absolute hardware cap for EMI noise
+    uint32_t ui_rounding = 10;           // Hysteresis: Rounds the final UI value to the nearest 10 RPM
+};
 
 class Fan : public Module {
 public:
@@ -16,7 +22,7 @@ public:
     void                        reset                       (const bool verbose=false,
                                                              const bool do_restart=true,
                                                              const bool keep_enabled=true)  override;
-    string                      status                      (const bool verbose=false)      const override;
+    std::string                 status                      (const bool verbose=false)      const override;
 
     // Core module methods
     bool                        add_fan                     (uint8_t pwm_pin);
@@ -24,20 +30,30 @@ public:
     bool                        remove_fan                  (uint8_t pwm_pin);
     bool                        set_fan_speed               (uint8_t pwm_pin, uint8_t speed);
 
+    // API to get the final stabilized RPM
+    uint32_t                    get_rpm                     (uint8_t pwm_pin)               const;
+
 private:
     struct FanData {
-        uint8_t pin_pwm;
-        uint8_t pin_tach;
-        bool    has_tach;
-        uint8_t speed;
+        uint8_t pin_pwm = 0;
+        uint8_t pin_tach = 0;
+        bool    has_tach = false;
+        uint8_t speed = 0;
 
-        // Interrupt & RPM specific fields
-        volatile uint32_t pulse_count;
-        uint32_t rpm;
-        uint32_t last_calc_time;
+        // Interrupt specific fields
+        volatile uint32_t pulse_count = 0;
+        uint32_t last_calc_time = 0;
+
+        // Median Filter Buffer
+        uint32_t raw_history[3] = {0, 0, 0};
+        uint8_t  history_idx = 0;
+        uint8_t  history_count = 0;
+
+        // Smoothing Data
+        uint32_t ema_rpm = 0;
+        uint32_t displayed_rpm = 0;
     };
 
-    // Removed IRAM_ATTR here; it belongs on the definition in the .cpp file
     static void                 tach_isr_handler            (void* arg);
 
     // NVS serialization helpers
@@ -53,7 +69,11 @@ private:
     void                        cli_set                     (std::string_view args);
     void                        cli_remove                  (std::string_view args);
 
-    // Storing as pointers so memory addresses remain stable for the ISR when vector resizes
     std::vector<FanData*>       fans;
     bool                        loaded_from_nvs             {false};
+
+    // Internal storage for configuration
+    float                       ema_alpha                   {0.3f};
+    uint32_t                    absolute_max_rpm            {10000};
+    uint32_t                    ui_rounding                 {10};
 };
