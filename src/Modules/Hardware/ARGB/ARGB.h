@@ -6,8 +6,9 @@
 #include <algorithm>
 #include <cstdio>
 
-// Include the Adafruit NeoPixel library
+// Include the Adafruit NeoPixel & ArduinoJson libraries
 #include <Adafruit_NeoPixel.h>
+#include <ArduinoJson.h>
 
 struct ARGBConfig : public ModuleConfig {
     // Add any global ARGB config here if needed in the future
@@ -30,6 +31,9 @@ public:
     bool                        remove                      (uint8_t pin);
     bool                        set_state                   (uint8_t pin, bool state);
     bool                        set_rgb                     (uint8_t pin, uint8_t r, uint8_t g, uint8_t b);
+
+    // New API to return ARGB data in JSON format
+    std::string                 get_json                    ()                              const;
 
 private:
     static constexpr uint16_t   DEFAULT_STRIP_LENGTH        = 12;

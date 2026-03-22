@@ -21,13 +21,21 @@ ARGB::~ARGB() {
 
 void ARGB::begin_routines_init(const ModuleConfig& cfg) {
     DBG_PRINTF(ARGB, "begin_routines_init(): Initialization routines run.\n");
-    add(6);
-    add(7);
+    // Removed hardcoded add(6) and add(7) here so NVS data isn't overwritten on boot.
+    // They are now handled in begin_routines_regular after NVS is checked.
 }
 
 void ARGB::begin_routines_regular(const ModuleConfig& cfg) {
     DBG_PRINTF(ARGB, "begin_routines_regular(): Enabled: %d, Loaded NVS: %d\n", is_enabled(), loaded_from_nvs);
-    if (is_enabled() && !loaded_from_nvs) load_from_nvs();
+    if (is_enabled() && !loaded_from_nvs) {
+        load_from_nvs();
+
+        // If NVS is completely empty, add the default pins and save them
+        if (leds.empty()) {
+            add(6);
+            add(7);
+        }
+    }
 }
 
 void ARGB::loop() {
@@ -57,6 +65,34 @@ std::string ARGB::status(const bool verbose) const {
 
     if (verbose) controller.serial_port.print(s);
     return s;
+}
+
+std::string ARGB::get_json() const {
+    if (is_disabled() || leds.empty()) return "[]";
+
+#if ARDUINOJSON_VERSION_MAJOR >= 7
+    JsonDocument doc;
+#else
+    DynamicJsonDocument doc(1024);
+#endif
+
+    JsonArray array = doc.to<JsonArray>();
+    for (const auto* l : leds) {
+#if ARDUINOJSON_VERSION_MAJOR >= 7
+        JsonObject obj = array.add<JsonObject>();
+#else
+        JsonObject obj = array.createNestedObject();
+#endif
+        obj["pin"] = l->pin;
+        obj["state"] = l->state;
+        obj["r"] = l->r;
+        obj["g"] = l->g;
+        obj["b"] = l->b;
+    }
+
+    std::string output;
+    serializeJson(doc, output);
+    return output;
 }
 
 // --- Internal Helpers ---
@@ -172,9 +208,15 @@ std::string ARGB::serialize_led(const ARGBData* l) const {
 }
 
 bool ARGB::deserialize_led(const std::string& config, ARGBData* l) const {
-    int state;
-    if (sscanf(config.c_str(), "%hhu %d %hhu %hhu %hhu", &l->pin, &state, &l->r, &l->g, &l->b) != 5) return false;
-    l->state = state;
+    unsigned int pin, state, r, g, b;
+    // Updated sscanf to use standard unsigned ints to prevent memory corruption when casting directly to uint8_t
+    if (sscanf(config.c_str(), "%u %u %u %u %u", &pin, &state, &r, &g, &b) != 5) return false;
+
+    l->pin = static_cast<uint8_t>(pin);
+    l->state = (state > 0);
+    l->r = static_cast<uint8_t>(r);
+    l->g = static_cast<uint8_t>(g);
+    l->b = static_cast<uint8_t>(b);
     return true;
 }
 

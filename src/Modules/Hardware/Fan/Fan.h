@@ -32,6 +32,9 @@ public:
     bool                        set_all                     (uint8_t speed);
     uint32_t                    get_rpm                     (uint8_t pwm_pin)               const;
 
+    // Returns fan data structures as a JSON string
+    std::string                 get_json                    ()                              const;
+
 private:
     struct FanData {
         uint8_t pin_pwm = 0, pin_tach = 0;

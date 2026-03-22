@@ -1,6 +1,7 @@
 #include "Fan.h"
 #include "../../../SystemController/SystemController.h"
 #include "../../../Debug.h"
+#include <ArduinoJson.h>
 
 #ifndef IRAM_ATTR
 #define IRAM_ATTR
@@ -148,6 +149,32 @@ std::string Fan::status(const bool verbose) const {
 
     if (verbose) controller.serial_port.print(s);
     return s;
+}
+
+std::string Fan::get_json() const {
+    // ArduinoJson v7 standard document (memory pool is handled automatically)
+    JsonDocument doc;
+
+    // v7 syntax for creating a nested array
+    JsonArray json_fans = doc["fans"].to<JsonArray>();
+
+    for (const auto* f : fans) {
+        // v7 syntax for appending an object to an array
+        JsonObject fan_obj = json_fans.add<JsonObject>();
+        fan_obj["pin_pwm"] = f->pin_pwm;
+        fan_obj["has_tach"] = f->has_tach;
+        fan_obj["speed"] = f->speed;
+
+        if (f->has_tach) {
+            fan_obj["pin_tach"] = f->pin_tach;
+            fan_obj["displayed_rpm"] = f->displayed_rpm;
+            fan_obj["ema_rpm"] = f->ema_rpm;
+        }
+    }
+
+    std::string json_str;
+    serializeJson(doc, json_str);
+    return json_str;
 }
 
 // --- Internal Dry Helpers ---

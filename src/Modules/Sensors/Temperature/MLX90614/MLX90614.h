@@ -29,6 +29,7 @@ public:
     float                       get_ambient_temp            () const;
     bool                        is_online                   () const;
     bool                        set_i2c_address             (uint8_t new_address);
+    std::string                 get_json                    () const; // <-- Added get_json API
 
 private:
     float                       read_i2c_temp               (uint8_t register_address) const;

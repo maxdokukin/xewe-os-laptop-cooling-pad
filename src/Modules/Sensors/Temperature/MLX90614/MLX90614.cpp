@@ -3,6 +3,7 @@
 #include "../../../../Debug.h"
 #include <Wire.h>
 #include <cmath>
+#include <ArduinoJson.h> // <-- Added ArduinoJson Library
 
 MLX90614::MLX90614(SystemController& controller)
       : Module(controller, "MLX90614", "Contactless I2C Temperature Sensor", "temp", true, false, true)
@@ -163,6 +164,31 @@ bool MLX90614::set_i2c_address(uint8_t new_address) {
         sensor_online = !std::isnan(read_i2c_temp(MLX_RAM_TOBJ1));
     }
     return true;
+}
+
+std::string MLX90614::get_json() const {
+    if (is_disabled()) return "{}";
+
+    JsonDocument doc; // Added ArduinoJson implementation
+
+    doc["module"] = "MLX90614";
+    doc["online"] = sensor_online;
+
+    if (sensor_online) {
+        doc["object_temp"] = cached_object_temp;
+        doc["ambient_temp"] = cached_ambient_temp;
+    } else {
+        doc["object_temp"] = nullptr;
+        doc["ambient_temp"] = nullptr;
+    }
+
+    doc["i2c_address"] = i2c_address;
+    doc["sda_pin"] = sda_pin;
+    doc["scl_pin"] = scl_pin;
+
+    std::string output;
+    serializeJson(doc, output);
+    return output;
 }
 
 // --- Internal NVS / I2C Logic ---
