@@ -60,12 +60,6 @@ private:
     bool                        deserialize_fan             (const std::string& config, FanData* fan) const;
     void                        nvs_clear_all               ();
 
-    void                        cli_add                     (std::string_view args);
-    void                        cli_add_w_tach              (std::string_view args);
-    void                        cli_set                     (std::string_view args);
-    void                        cli_set_all                 (std::string_view args);
-    void                        cli_remove                  (std::string_view args);
-
     std::vector<FanData*>       fans;
     bool                        loaded_from_nvs             {false};
 

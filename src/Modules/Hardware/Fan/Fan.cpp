@@ -15,11 +15,55 @@ Fan::Fan(SystemController& controller)
 {
     DBG_PRINTF(Fan, "Fan(): Initializing Fan module.\n");
 
-    commands_storage.push_back({ "add", "Add a fan without a tachometer: <pwm_pin>", std::string("$") + lower(module_name) + " add 9", 1, [this](std::string_view args){ cli_add(args); } });
-    commands_storage.push_back({ "add_w_tach", "Add a fan with a tachometer: <pwm_pin> <tach_pin>", std::string("$") + lower(module_name) + " add_w_tach 9 10", 2, [this](std::string_view args){ cli_add_w_tach(args); } });
-    commands_storage.push_back({ "set", "Set the speed of a specific fan: <pwm_pin> <val>", std::string("$") + lower(module_name) + " set 9 255", 2, [this](std::string_view args){ cli_set(args); } });
-    commands_storage.push_back({ "set_all", "Set the speed of all configured fans: <val>", std::string("$") + lower(module_name) + " set_all 255", 1, [this](std::string_view args){ cli_set_all(args); } });
-    commands_storage.push_back({ "remove", "Remove a fan by its PWM pin: <pwm_pin>", std::string("$") + lower(module_name) + " remove 9", 1, [this](std::string_view args){ cli_remove(args); } });
+    commands_storage.push_back({ "add", "Add a fan without a tachometer: <pwm_pin>", std::string("$") + lower(module_name) + " add 9", 1,
+        [this](std::string_view args) {
+            int pwm;
+            if (sscanf(std::string(args).c_str(), "%d", &pwm) == 1 && add(pwm))
+                this->controller.serial_port.print("Fan added.");
+            else
+                this->controller.serial_port.print("Failed to add fan.");
+        }
+    });
+
+    commands_storage.push_back({ "add_w_tach", "Add a fan with a tachometer: <pwm_pin> <tach_pin>", std::string("$") + lower(module_name) + " add_w_tach 9 10", 2,
+        [this](std::string_view args) {
+            int pwm, tach;
+            if (sscanf(std::string(args).c_str(), "%d %d", &pwm, &tach) == 2 && add_w_tach(pwm, tach))
+                this->controller.serial_port.print("Fan with tach added.");
+            else
+                this->controller.serial_port.print("Failed to add fan.");
+        }
+    });
+
+    commands_storage.push_back({ "set", "Set the speed of a specific fan: <pwm_pin> <val>", std::string("$") + lower(module_name) + " set 9 255", 2,
+        [this](std::string_view args) {
+            int pwm, speed;
+            if (sscanf(std::string(args).c_str(), "%d %d", &pwm, &speed) == 2 && set(pwm, speed))
+                this->controller.serial_port.print("Speed updated.");
+            else
+                this->controller.serial_port.print("Failed to set fan speed.");
+        }
+    });
+
+    commands_storage.push_back({ "set_all", "Set the speed of all configured fans: <val>", std::string("$") + lower(module_name) + " set_all 255", 1,
+        [this](std::string_view args) {
+            int speed;
+            if (sscanf(std::string(args).c_str(), "%d", &speed) == 1 && set_all(speed))
+                this->controller.serial_port.print("All fans updated.");
+            else
+                this->controller.serial_port.print("Failed to set fans.");
+        }
+    });
+
+    commands_storage.push_back({ "remove", "Remove a fan by its PWM pin: <pwm_pin>", std::string("$") + lower(module_name) + " remove 9", 1,
+        [this](std::string_view args) {
+            int pwm;
+            if (sscanf(std::string(args).c_str(), "%d", &pwm) == 1 && remove(pwm))
+                this->controller.serial_port.print("Fan removed.");
+            else
+                this->controller.serial_port.print("Failed to remove fan.");
+        }
+    });
 }
 
 Fan::~Fan() {
@@ -179,38 +223,6 @@ bool Fan::set_all(uint8_t speed) {
     }
     save_all_to_nvs();
     return true;
-}
-
-// --- CLI Handlers (Streamlined) ---
-
-void Fan::cli_add(std::string_view args) {
-    int pwm;
-    if (sscanf(std::string(args).c_str(), "%d", &pwm) == 1 && add(pwm)) controller.serial_port.print("Fan added.");
-    else controller.serial_port.print("Failed to add fan.");
-}
-
-void Fan::cli_add_w_tach(std::string_view args) {
-    int pwm, tach;
-    if (sscanf(std::string(args).c_str(), "%d %d", &pwm, &tach) == 2 && add_w_tach(pwm, tach)) controller.serial_port.print("Fan with tach added.");
-    else controller.serial_port.print("Failed to add fan.");
-}
-
-void Fan::cli_set(std::string_view args) {
-    int pwm, speed;
-    if (sscanf(std::string(args).c_str(), "%d %d", &pwm, &speed) == 2 && set(pwm, speed)) controller.serial_port.print("Speed updated.");
-    else controller.serial_port.print("Failed to set fan speed.");
-}
-
-void Fan::cli_set_all(std::string_view args) {
-    int speed;
-    if (sscanf(std::string(args).c_str(), "%d", &speed) == 1 && set_all(speed)) controller.serial_port.print("All fans updated.");
-    else controller.serial_port.print("Failed to set fans.");
-}
-
-void Fan::cli_remove(std::string_view args) {
-    int pwm;
-    if (sscanf(std::string(args).c_str(), "%d", &pwm) == 1 && remove(pwm)) controller.serial_port.print("Fan removed.");
-    else controller.serial_port.print("Failed to remove fan.");
 }
 
 // --- NVS Storage Helpers ---
