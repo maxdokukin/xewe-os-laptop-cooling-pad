@@ -18,6 +18,7 @@
 
 #include "../Modules/Hardware/Fan/Fan.h"
 #include "../Modules/Sensors/Temperature/MLX90614/MLX90614.h"
+#include "../Modules/Hardware/ARGB/ARGB.h"
 //#include "../Modules/Software/FanTempController/FanTempController.h"
 
 #include "../Modules/Software/Wifi/Wifi.h"
@@ -39,6 +40,7 @@ public:
     CommandParser               command_parser;
     Fan                         fan;
     MLX90614                    mlx90614;
+    ARGB                        argb;
 //    FanTempController           fan_temp_controller;
     Wifi                        wifi;
     WebInterface                web_interface;

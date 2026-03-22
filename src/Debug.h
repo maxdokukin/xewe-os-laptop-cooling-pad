@@ -21,6 +21,7 @@
 #define DEBUG_Fan               0
 #define DEBUG_FanTempController 0
 #define DEBUG_MLX90614          0
+#define DEBUG_ARGB              0
 
 
 #define DBG_ENABLED(cls)      (DEBUG_##cls)

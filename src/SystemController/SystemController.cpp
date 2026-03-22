@@ -18,6 +18,7 @@ SystemController::SystemController()
   , command_parser(*this)
   , fan(*this)
   , mlx90614(*this)
+  , argb(*this)
 //  , fan_temp_controller(*this)
   , wifi(*this)
   , web_interface(*this)
@@ -28,6 +29,7 @@ SystemController::SystemController()
     modules.push_back(&command_parser);
     modules.push_back(&fan);
     modules.push_back(&mlx90614);
+    modules.push_back(&argb);
 //    modules.push_back(&fan_temp_controller);
     modules.push_back(&wifi);
     modules.push_back(&web_interface);
@@ -41,6 +43,7 @@ void SystemController::begin() {
     system.begin                    (SystemConfig           {});
     fan.begin                       (FanConfig              {});
     mlx90614.begin                  (MLX90614Config         {});
+    argb.begin                      (ARGBConfig             {});
 //    fan_temp_controller.begin       (FanTempControllerConfig{});
     wifi.begin                      (WifiConfig             {});
     web_interface.add_requirement   (wifi);

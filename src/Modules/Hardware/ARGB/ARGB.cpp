@@ -1,0 +1,210 @@
+#include "ARGB.h"
+#include "../../../SystemController/SystemController.h"
+#include "../../../Debug.h"
+
+// Fallback wrapper if the ESP32 core version is older and lacks neopixelWrite
+#ifndef neopixelWrite
+#define neopixelWrite(pin, r, g, b) rgbLedWrite(pin, r, g, b)
+#endif
+
+ARGB::ARGB(SystemController& controller)
+      : Module(controller, "ARGB", "Lightweight WS2812B LED controller", "argb", true, false, true)
+{
+    DBG_PRINTF(ARGB, "ARGB(): Initializing ARGB module.\n");
+
+    commands_storage.push_back({ "add", "Add a WS2812B LED: <pin>", std::string("$") + lower(module_name) + " add 4", 1, [this](std::string_view args){ cli_add(args); } });
+    commands_storage.push_back({ "remove", "Remove an LED by its pin: <pin>", std::string("$") + lower(module_name) + " remove 4", 1, [this](std::string_view args){ cli_remove(args); } });
+    commands_storage.push_back({ "set_state", "Turn LED on/off: <pin> <1|0>", std::string("$") + lower(module_name) + " set_state 4 1", 2, [this](std::string_view args){ cli_set_state(args); } });
+    commands_storage.push_back({ "set_rgb", "Set RGB color: <pin> <r> <g> <b>", std::string("$") + lower(module_name) + " set_rgb 4 255 0 0", 4, [this](std::string_view args){ cli_set_rgb(args); } });
+}
+
+ARGB::~ARGB() {
+    DBG_PRINTF(ARGB, "~ARGB(): Destroying module, clearing memory.\n");
+    for (auto* led : leds) free_led(led);
+    leds.clear();
+}
+
+void ARGB::begin_routines_init(const ModuleConfig& cfg) {
+    DBG_PRINTF(ARGB, "begin_routines_init(): Initialization routines run.\n");
+    // Example auto-init if needed: add(4);
+    add(6);
+    add(7);
+}
+
+void ARGB::begin_routines_regular(const ModuleConfig& cfg) {
+    DBG_PRINTF(ARGB, "begin_routines_regular(): Enabled: %d, Loaded NVS: %d\n", is_enabled(), loaded_from_nvs);
+    if (is_enabled() && !loaded_from_nvs) load_from_nvs();
+}
+
+void ARGB::loop() {
+    // ARGB doesn't need continuous loop calculation like RPM, handled statefully on update.
+    if (is_disabled()) return;
+}
+
+void ARGB::reset(const bool verbose, const bool do_restart, const bool keep_enabled) {
+    DBG_PRINTF(ARGB, "reset(): Resetting ARGB module.\n");
+    nvs_clear_all();
+    for (auto* led : leds) free_led(led);
+    leds.clear();
+    Module::reset(verbose, do_restart, keep_enabled);
+}
+
+std::string ARGB::status(const bool verbose) const {
+    if (is_disabled()) return "ARGB module disabled";
+    if (leds.empty()) return "No ARGB LEDs are currently configured.";
+
+    std::string s = "--- Active ARGB LEDs ---\n";
+    for (const auto* l : leds) {
+        s += "  - Pin: " + std::to_string(l->pin) +
+             ", State: " + (l->state ? "ON" : "OFF") +
+             ", RGB: (" + std::to_string(l->r) + ", " + std::to_string(l->g) + ", " + std::to_string(l->b) + ")\n";
+    }
+    s += "------------------------";
+
+    if (verbose) controller.serial_port.print(s);
+    return s;
+}
+
+// --- Internal Helpers ---
+
+ARGB::ARGBData* ARGB::get_led(uint8_t pin) const {
+    for (auto* l : leds) if (l->pin == pin) return l;
+    return nullptr;
+}
+
+void ARGB::free_led(ARGBData* l) {
+    neopixelWrite(l->pin, 0, 0, 0); // Turn off before freeing
+    delete l;
+}
+
+void ARGB::update_hardware(const ARGBData* l) const {
+    if (l->state) {
+        neopixelWrite(l->pin, l->r, l->g, l->b);
+    } else {
+        neopixelWrite(l->pin, 0, 0, 0);
+    }
+}
+
+// --- Core API Methods ---
+
+bool ARGB::add(uint8_t pin) {
+    if (is_disabled() || get_led(pin)) return false;
+
+    ARGBData* l = new ARGBData{pin, false, 255, 255, 255}; // Default OFF, White
+    leds.push_back(l);
+    update_hardware(l);
+    save_all_to_nvs();
+    return true;
+}
+
+bool ARGB::remove(uint8_t pin) {
+    if (is_disabled()) return false;
+    auto it = std::find_if(leds.begin(), leds.end(), [pin](ARGBData* l) { return l->pin == pin; });
+    if (it == leds.end()) return false;
+
+    free_led(*it);
+    leds.erase(it);
+    save_all_to_nvs();
+    return true;
+}
+
+bool ARGB::set_state(uint8_t pin, bool state) {
+    if (is_disabled()) return false;
+    if (ARGBData* l = get_led(pin)) {
+        l->state = state;
+        update_hardware(l);
+        save_all_to_nvs();
+        return true;
+    }
+    return false;
+}
+
+bool ARGB::set_rgb(uint8_t pin, uint8_t r, uint8_t g, uint8_t b) {
+    if (is_disabled()) return false;
+    if (ARGBData* l = get_led(pin)) {
+        l->r = r;
+        l->g = g;
+        l->b = b;
+        update_hardware(l);
+        save_all_to_nvs();
+        return true;
+    }
+    return false;
+}
+
+// --- CLI Handlers ---
+
+void ARGB::cli_add(std::string_view args) {
+    int pin;
+    if (sscanf(std::string(args).c_str(), "%d", &pin) == 1 && add(pin)) controller.serial_port.print("LED added.");
+    else controller.serial_port.print("Failed to add LED.");
+}
+
+void ARGB::cli_remove(std::string_view args) {
+    int pin;
+    if (sscanf(std::string(args).c_str(), "%d", &pin) == 1 && remove(pin)) controller.serial_port.print("LED removed.");
+    else controller.serial_port.print("Failed to remove LED.");
+}
+
+void ARGB::cli_set_state(std::string_view args) {
+    int pin, state;
+    if (sscanf(std::string(args).c_str(), "%d %d", &pin, &state) == 2 && set_state(pin, state > 0)) controller.serial_port.print("State updated.");
+    else controller.serial_port.print("Failed to update LED state.");
+}
+
+void ARGB::cli_set_rgb(std::string_view args) {
+    int pin, r, g, b;
+    if (sscanf(std::string(args).c_str(), "%d %d %d %d", &pin, &r, &g, &b) == 4 && set_rgb(pin, r, g, b)) controller.serial_port.print("RGB updated.");
+    else controller.serial_port.print("Failed to update RGB.");
+}
+
+// --- NVS Storage Helpers ---
+
+std::string ARGB::serialize_led(const ARGBData* l) const {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%u %d %u %u %u", l->pin, l->state, l->r, l->g, l->b);
+    return std::string(buf);
+}
+
+bool ARGB::deserialize_led(const std::string& config, ARGBData* l) const {
+    int state;
+    if (sscanf(config.c_str(), "%hhu %d %hhu %hhu %hhu", &l->pin, &state, &l->r, &l->g, &l->b) != 5) return false;
+    l->state = state;
+    return true;
+}
+
+void ARGB::load_from_nvs() {
+    if (is_disabled()) return;
+    for (auto* l : leds) free_led(l);
+    leds.clear();
+
+    int count = controller.nvs.read_uint8(nvs_key, "argb_count", 0);
+    for (int i = 0; i < count; i++) {
+        ARGBData temp;
+        if (deserialize_led(controller.nvs.read_str(nvs_key, "argb_cfg_" + std::to_string(i)), &temp)) {
+            ARGBData* l = new ARGBData{temp.pin, temp.state, temp.r, temp.g, temp.b};
+            leds.push_back(l);
+            update_hardware(l);
+        }
+    }
+    loaded_from_nvs = true;
+}
+
+void ARGB::save_all_to_nvs() {
+    if (is_disabled()) return;
+    nvs_clear_all();
+    controller.nvs.write_uint8(nvs_key, "argb_count", leds.size());
+
+    for (size_t i = 0; i < leds.size(); i++) {
+        controller.nvs.write_str(nvs_key, "argb_cfg_" + std::to_string(i), serialize_led(leds[i]));
+    }
+}
+
+void ARGB::nvs_clear_all() {
+    if (is_disabled()) return;
+    int count = controller.nvs.read_uint8(nvs_key, "argb_count", 0);
+    for (int i = 0; i < count; i++) {
+        controller.nvs.remove(nvs_key, "argb_cfg_" + std::to_string(i));
+    }
+    controller.nvs.write_uint8(nvs_key, "argb_count", 0);
+}

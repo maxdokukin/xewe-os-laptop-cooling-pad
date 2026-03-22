@@ -27,8 +27,11 @@ void MLX90614::begin_routines_init(const ModuleConfig& cfg) {
         controller.serial_port.print_header("MLX90614 Configuration");
         controller.serial_port.print("I2C pins are currently unconfigured. Please set them now.");
 
-        sda_pin = controller.serial_port.get_uint8("Enter SDA Pin (0-99): ", 0, 99);
-        scl_pin = controller.serial_port.get_uint8("Enter SCL Pin (0-99): ", 0, 99);
+//        sda_pin = controller.serial_port.get_uint8("Enter SDA Pin (0-99): ", 0, 99);
+//        scl_pin = controller.serial_port.get_uint8("Enter SCL Pin (0-99): ", 0, 99);
+        sda_pin = 4;
+        scl_pin = 5;
+
 
         save_to_nvs();
         controller.serial_port.print("Settings saved to NVS!");
