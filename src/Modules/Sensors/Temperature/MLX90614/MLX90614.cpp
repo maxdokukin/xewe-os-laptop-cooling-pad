@@ -17,32 +17,51 @@ MLX90614::MLX90614(SystemController& controller)
 
 void MLX90614::begin_routines_init(const ModuleConfig& cfg) {
     const auto& temp_cfg = static_cast<const MLX90614Config&>(cfg);
-
-    sda_pin = (sda_pin == 255) ? temp_cfg.sda_pin : sda_pin;
-    scl_pin = (scl_pin == 255) ? temp_cfg.scl_pin : scl_pin;
     i2c_address = temp_cfg.default_i2c_address;
 
     if (is_disabled()) return;
 
-    load_from_nvs();
-
+    // ONLY Prompt in init if unconfigured
     if (sda_pin == 255 || scl_pin == 255) {
         controller.serial_port.print_spacer();
         controller.serial_port.print_header("MLX90614 Configuration");
-//        controller.serial_port.print("I2C pins are currently unconfigured. Please set them now.");
-//
-//        sda_pin = controller.serial_port.get_uint8("Enter SDA Pin (0-99): ", 0, 99);
-//        scl_pin = controller.serial_port.get_uint8("Enter SCL Pin (0-99): ", 0, 99);
+        controller.serial_port.print("I2C pins are currently unconfigured. Please set them now.");
 
-        sda_pin = 4;
-        scl_pin = 5;
+        sda_pin = controller.serial_port.get_uint8("Enter SDA Pin (0-99): ", 0, 99);
+        scl_pin = controller.serial_port.get_uint8("Enter SCL Pin (0-99): ", 0, 99);
 
         save_to_nvs();
         controller.serial_port.print("Settings saved to NVS!");
         controller.serial_port.print_separator();
     }
+}
 
+void MLX90614::begin_routines_regular(const ModuleConfig& cfg) {
+    const auto& temp_cfg = static_cast<const MLX90614Config&>(cfg);
+    poll_interval_ms = temp_cfg.poll_interval_ms;
+    error_temp = temp_cfg.error_temp;
+
+    if (is_disabled()) return;
+
+    // ONLY Load from NVS in regular
+    load_from_nvs();
+
+    // Fallback to struct config just in case NVS was empty and prompt was skipped
+    if (sda_pin == 255) sda_pin = temp_cfg.sda_pin;
+    if (scl_pin == 255) scl_pin = temp_cfg.scl_pin;
+
+    if (sda_pin == 255 || scl_pin == 255) {
+        controller.serial_port.print("MLX90614 Init Failed: Pins still unconfigured.");
+        return;
+    }
+
+    // Fire up the hardware now that NVS is loaded
     controller.serial_port.print("MLX90614 Init: Starting I2C on SDA=" + std::to_string(sda_pin) + " SCL=" + std::to_string(scl_pin));
+
+    #if defined(ESP32) || defined(ESP8266)
+    Wire.end();
+    #endif
+
     Wire.begin(sda_pin, scl_pin);
     cli_scan("");
 
@@ -52,17 +71,11 @@ void MLX90614::begin_routines_init(const ModuleConfig& cfg) {
 
     if (sensor_online) {
         char buf[64];
-        snprintf(buf, sizeof(buf), "MLX90614 Init Success: Valid data read from 0x%02X. Temp: %.2f °C", i2c_address, cached_object_temp);
+        snprintf(buf, sizeof(buf), "MLX90614 Init Success: Valid data read from 0x%02X. Temp: %.2f C", i2c_address, cached_object_temp);
         controller.serial_port.print(buf);
     } else {
         controller.serial_port.print("MLX90614 Init Failed: Could not read valid data from configured address.");
     }
-}
-
-void MLX90614::begin_routines_regular(const ModuleConfig& cfg) {
-    const auto& temp_cfg = static_cast<const MLX90614Config&>(cfg);
-    poll_interval_ms = temp_cfg.poll_interval_ms;
-    error_temp = temp_cfg.error_temp;
 
     if (is_enabled()) last_read_time = millis();
 }
@@ -96,12 +109,19 @@ void MLX90614::reset(const bool verbose, const bool do_restart, const bool keep_
     controller.nvs.remove(nvs_key, "i2c_addr");
     controller.nvs.remove(nvs_key, "sda_pin");
     controller.nvs.remove(nvs_key, "scl_pin");
+    // If your NVS wrapper requires it, uncomment this:
+    // controller.nvs.commit();
 
     Module::reset(verbose, do_restart, keep_enabled);
 }
 
 std::string MLX90614::status(const bool verbose) const {
     if (is_disabled()) return "MLX90614 module disabled";
+
+    // Safely resolve the string *before* passing to snprintf
+    std::string pin_status = (sda_pin == 255 || scl_pin == 255)
+                             ? "[WARNING] Unconfigured"
+                             : "SDA=" + std::to_string(sda_pin) + " SCL=" + std::to_string(scl_pin);
 
     char buf[256];
     snprintf(buf, sizeof(buf),
@@ -112,7 +132,7 @@ std::string MLX90614::status(const bool verbose) const {
         "  Object:    %.2f °C\n"
         "  Ambient:   %.2f °C\n"
         "-----------------------",
-        (sda_pin == 255 || scl_pin == 255) ? "[WARNING] Unconfigured" : ("SDA=" + std::to_string(sda_pin) + " SCL=" + std::to_string(scl_pin)).c_str(),
+        pin_status.c_str(),
         i2c_address,
         sensor_online ? "YES" : "NO",
         cached_object_temp,
@@ -159,6 +179,9 @@ void MLX90614::save_to_nvs() const {
     controller.nvs.write_uint8(nvs_key, "i2c_addr", i2c_address);
     if (sda_pin != 255) controller.nvs.write_uint8(nvs_key, "sda_pin", sda_pin);
     if (scl_pin != 255) controller.nvs.write_uint8(nvs_key, "scl_pin", scl_pin);
+
+    // WARNING: If your NVS wrapper does not auto-commit, you MUST call commit here.
+    // controller.nvs.commit();
 }
 
 float MLX90614::read_i2c_temp(uint8_t register_address) const {
@@ -245,6 +268,12 @@ void MLX90614::cli_set_pins(std::string_view args_sv) {
         save_to_nvs();
 
         controller.serial_port.print("Pins updated to SDA=" + std::to_string(sda_pin) + " SCL=" + std::to_string(scl_pin) + ". Initializing bus...");
+
+        // Ensure proper teardown before spinning up new pins if applicable
+        #if defined(ESP32) || defined(ESP8266)
+        Wire.end();
+        #endif
+
         Wire.begin(sda_pin, scl_pin);
         cli_scan("");
 
