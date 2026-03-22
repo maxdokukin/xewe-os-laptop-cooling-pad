@@ -35,20 +35,60 @@ void TempController::begin_routines_regular(const ModuleConfig& cfg) {
 void TempController::loop() {
     if (is_disabled() || curve.empty()) return;
 
-    // Minimal timing logic to avoid flooding the fan/I2C buses
     uint32_t now = millis();
     if (now - last_update_time >= update_interval_ms) {
         last_update_time = now;
 
-        // Fetch current temperature from MLX sensor
         float current_temp = controller.mlx90614.get_temp();
-
-        // Calculate target speed
         uint8_t target_speed = get_target_speed(current_temp);
 
-        // Apply target speed to all fans
         controller.fan.set_all(target_speed);
+        update_argb_colors(current_temp); // Synchronize LED colors with the temperature
     }
+}
+
+void TempController::update_argb_colors(float current_temp) {
+    if (curve.empty()) return;
+
+    // RULE: "TURN OFF IF FALLS BELOW THE MIN POINT TEMP"
+    float min_temp = curve.front().temp;
+    if (current_temp < min_temp) {
+        controller.argb.set_all_state(false, false); // False = skip NVS save
+        return;
+    }
+
+    // RULE: "TURN ON WHEN THE TEMP REACHEDS FIST POINT AND START DISPLAYING GRADIENT"
+    controller.argb.set_all_state(true, false);
+
+    // Simple hex string parsing lambda
+    auto parse_hex = [](const std::string& hex, int& r, int& g, int& b) {
+        if (hex.length() >= 7 && hex[0] == '#') {
+            sscanf(hex.c_str(), "#%02x%02x%02x", &r, &g, &b);
+        }
+    };
+
+    int r1 = 0, g1 = 0, b1 = 255; // Default Cold (Blue)
+    int r2 = 255, g2 = 0, b2 = 0; // Default Hot (Red)
+    parse_hex(cold_color, r1, g1, b1);
+    parse_hex(hot_color, r2, g2, b2);
+
+    float max_temp = curve.back().temp;
+    uint8_t r, g, b;
+
+    // Cap to hottest color if we exceed the curve's max point
+    if (current_temp >= max_temp || min_temp == max_temp) {
+        r = r2; g = g2; b = b2;
+    } else {
+        // Calculate the interpolation percentage (0.0 to 1.0)
+        float t = (current_temp - min_temp) / (max_temp - min_temp);
+
+        r = static_cast<uint8_t>(r1 + (r2 - r1) * t);
+        g = static_cast<uint8_t>(g1 + (g2 - g1) * t);
+        b = static_cast<uint8_t>(b1 + (b2 - b1) * t);
+    }
+
+    // Pass false to prevent constant NVS flash writes!
+    controller.argb.set_all_rgb(r, g, b, false);
 }
 
 void TempController::reset(const bool verbose, const bool do_restart, const bool keep_enabled) {
@@ -233,14 +273,20 @@ void TempController::load_from_nvs() {
     cold_color = controller.nvs.read_str(nvs_key, "cold_color", "#0000FF");
     hot_color = controller.nvs.read_str(nvs_key, "hot_color", "#FF0000");
 
-    // Load temperature curve
-    int count = controller.nvs.read_uint8(nvs_key, "curve_count", 0);
-    for (int i = 0; i < count; i++) {
-        std::string raw = controller.nvs.read_str(nvs_key, "curve_pt_" + std::to_string(i));
+    // Load temperature curve as a single string (Format: temp:speed;temp:speed;)
+    std::string curve_data = controller.nvs.read_str(nvs_key, "curve_data", "");
+
+    size_t start = 0;
+    size_t end = curve_data.find(';');
+
+    while (end != std::string::npos) {
+        std::string token = curve_data.substr(start, end - start);
         float temp; int speed;
-        if (sscanf(raw.c_str(), "%f %d", &temp, &speed) == 2) {
+        if (sscanf(token.c_str(), "%f:%d", &temp, &speed) == 2) {
             curve.push_back({temp, static_cast<uint8_t>(speed)});
         }
+        start = end + 1;
+        end = curve_data.find(';', start);
     }
 
     std::sort(curve.begin(), curve.end());
@@ -254,21 +300,15 @@ void TempController::save_all_to_nvs() {
     controller.nvs.write_str(nvs_key, "cold_color", cold_color);
     controller.nvs.write_str(nvs_key, "hot_color", hot_color);
 
-    // Clear old curve points to avoid leftover keys
-    int old_count = controller.nvs.read_uint8(nvs_key, "curve_count", 0);
-    for (int i = 0; i < old_count; i++) {
-        controller.nvs.remove(nvs_key, "curve_pt_" + std::to_string(i));
-    }
-
-    // Save new curve point count
-    controller.nvs.write_uint8(nvs_key, "curve_count", static_cast<uint8_t>(curve.size()));
-
-    // Serialize and save each point
-    for (size_t i = 0; i < curve.size(); i++) {
+    // Serialize entire curve into a single string to save flash wear and prevent orphan keys
+    std::string curve_data = "";
+    for (const auto& p : curve) {
         char buf[32];
-        snprintf(buf, sizeof(buf), "%.2f %d", curve[i].temp, curve[i].fan_speed);
-        controller.nvs.write_str(nvs_key, "curve_pt_" + std::to_string(i), buf);
+        snprintf(buf, sizeof(buf), "%.2f:%d;", p.temp, p.fan_speed);
+        curve_data += buf;
     }
+
+    controller.nvs.write_str(nvs_key, "curve_data", curve_data);
 }
 
 void TempController::nvs_clear_all() {
@@ -276,10 +316,5 @@ void TempController::nvs_clear_all() {
 
     controller.nvs.remove(nvs_key, "cold_color");
     controller.nvs.remove(nvs_key, "hot_color");
-
-    int count = controller.nvs.read_uint8(nvs_key, "curve_count", 0);
-    for (int i = 0; i < count; i++) {
-        controller.nvs.remove(nvs_key, "curve_pt_" + std::to_string(i));
-    }
-    controller.nvs.write_uint8(nvs_key, "curve_count", 0);
+    controller.nvs.remove(nvs_key, "curve_data");
 }

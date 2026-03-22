@@ -60,6 +60,7 @@ private:
     void                        load_from_nvs               ();
     void                        save_all_to_nvs             ();
     void                        nvs_clear_all               ();
+    void                        update_argb_colors          (float current_temp);
 
     // CLI Handlers
     void                        cli_add_point               (std::string_view args);

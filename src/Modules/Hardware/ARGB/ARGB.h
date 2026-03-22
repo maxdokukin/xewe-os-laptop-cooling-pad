@@ -29,8 +29,14 @@ public:
 
     bool                        add                         (uint8_t pin);
     bool                        remove                      (uint8_t pin);
-    bool                        set_state                   (uint8_t pin, bool state);
-    bool                        set_rgb                     (uint8_t pin, uint8_t r, uint8_t g, uint8_t b);
+
+    // Note: save_to_nvs defaults to true for normal usage, but can be bypassed for dynamic temp scaling
+    bool                        set_state                   (uint8_t pin, bool state, bool save_to_nvs = true);
+    bool                        set_rgb                     (uint8_t pin, uint8_t r, uint8_t g, uint8_t b, bool save_to_nvs = true);
+
+    // Broadcast API for driving all LEDs simultaneously
+    bool                        set_all_state               (bool state, bool save_to_nvs = true);
+    bool                        set_all_rgb                 (uint8_t r, uint8_t g, uint8_t b, bool save_to_nvs = true);
 
     // API to return ARGB data in JSON format
     std::string                 get_json                    ()                              const;
