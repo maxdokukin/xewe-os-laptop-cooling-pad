@@ -15,7 +15,11 @@
 #include "../Modules/Software/System/System.h"
 #include "../Modules/Software/CommandParser/CommandParser.h"
 #include "../Modules/Hardware/Nvs/Nvs.h"
+
 #include "../Modules/Hardware/Fan/Fan.h"
+#include "../Modules/Sensors/Temperature/MLX90614/MLX90614.h"
+//#include "../Modules/Software/FanTempController/FanTempController.h"
+
 #include "../Modules/Software/Wifi/Wifi.h"
 #include "../Modules/Software/WebInterface/WebInterface.h"
 
@@ -34,6 +38,8 @@ public:
     System                      system;
     CommandParser               command_parser;
     Fan                         fan;
+    MLX90614                    mlx90614;
+//    FanTempController           fan_temp_controller;
     Wifi                        wifi;
     WebInterface                web_interface;
 

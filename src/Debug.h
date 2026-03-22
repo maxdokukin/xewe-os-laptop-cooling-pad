@@ -10,7 +10,6 @@
 // Debug.h
 #pragma once
 
-
 #define DEBUG_SystemController  0
 #define DEBUG_Module            0
 #define DEBUG_SerialPort        0
@@ -19,7 +18,9 @@
 #define DEBUG_CommandParser     0
 #define DEBUG_Wifi              0
 #define DEBUG_WebInterface      0
-#define DEBUG_Fan               1
+#define DEBUG_Fan               0
+#define DEBUG_FanTempController 0
+#define DEBUG_MLX90614          0
 
 
 #define DBG_ENABLED(cls)      (DEBUG_##cls)

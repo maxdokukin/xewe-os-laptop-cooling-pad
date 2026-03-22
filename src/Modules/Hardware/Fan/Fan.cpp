@@ -1,6 +1,6 @@
 #include "Fan.h"
 #include "../../../SystemController/SystemController.h"
-#include "../../Debug.h"
+#include "../../../Debug.h"
 
 #ifndef IRAM_ATTR
 #define IRAM_ATTR
