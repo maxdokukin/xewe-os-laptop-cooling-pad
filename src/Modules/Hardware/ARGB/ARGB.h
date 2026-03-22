@@ -6,10 +6,8 @@
 #include <algorithm>
 #include <cstdio>
 
-// Include the built-in ESP32 RGB LED HAL for lightweight WS2812B control
-#if __has_include(<esp32-hal-rgb-led.h>)
-#include <esp32-hal-rgb-led.h>
-#endif
+// Include the Adafruit NeoPixel library
+#include <Adafruit_NeoPixel.h>
 
 struct ARGBConfig : public ModuleConfig {
     // Add any global ARGB config here if needed in the future
@@ -34,12 +32,15 @@ public:
     bool                        set_rgb                     (uint8_t pin, uint8_t r, uint8_t g, uint8_t b);
 
 private:
+    static constexpr uint16_t   DEFAULT_STRIP_LENGTH        = 12;
+
     struct ARGBData {
-        uint8_t pin = 0;
-        bool    state = false;
-        uint8_t r = 0;
-        uint8_t g = 0;
-        uint8_t b = 0;
+        uint8_t             pin = 0;
+        bool                state = false;
+        uint8_t             r = 0;
+        uint8_t             g = 0;
+        uint8_t             b = 0;
+        Adafruit_NeoPixel* strip = nullptr;
     };
 
     ARGBData* get_led                     (uint8_t pin) const;

@@ -2,19 +2,14 @@
 #include "../../../SystemController/SystemController.h"
 #include "../../../Debug.h"
 
-// Fallback wrapper if the ESP32 core version is older and lacks neopixelWrite
-#ifndef neopixelWrite
-#define neopixelWrite(pin, r, g, b) rgbLedWrite(pin, r, g, b)
-#endif
-
 ARGB::ARGB(SystemController& controller)
-      : Module(controller, "ARGB", "Lightweight WS2812B LED controller", "argb", true, false, true)
+      : Module(controller, "ARGB", "Adafruit NeoPixel ARGB controller", "argb", true, false, true)
 {
     DBG_PRINTF(ARGB, "ARGB(): Initializing ARGB module.\n");
 
-    commands_storage.push_back({ "add", "Add a WS2812B LED: <pin>", std::string("$") + lower(module_name) + " add 4", 1, [this](std::string_view args){ cli_add(args); } });
-    commands_storage.push_back({ "remove", "Remove an LED by its pin: <pin>", std::string("$") + lower(module_name) + " remove 4", 1, [this](std::string_view args){ cli_remove(args); } });
-    commands_storage.push_back({ "set_state", "Turn LED on/off: <pin> <1|0>", std::string("$") + lower(module_name) + " set_state 4 1", 2, [this](std::string_view args){ cli_set_state(args); } });
+    commands_storage.push_back({ "add", "Add a WS2812B LED strip: <pin>", std::string("$") + lower(module_name) + " add 4", 1, [this](std::string_view args){ cli_add(args); } });
+    commands_storage.push_back({ "remove", "Remove an LED strip by its pin: <pin>", std::string("$") + lower(module_name) + " remove 4", 1, [this](std::string_view args){ cli_remove(args); } });
+    commands_storage.push_back({ "set_state", "Turn LED strip on/off: <pin> <1|0>", std::string("$") + lower(module_name) + " set_state 4 1", 2, [this](std::string_view args){ cli_set_state(args); } });
     commands_storage.push_back({ "set_rgb", "Set RGB color: <pin> <r> <g> <b>", std::string("$") + lower(module_name) + " set_rgb 4 255 0 0", 4, [this](std::string_view args){ cli_set_rgb(args); } });
 }
 
@@ -26,7 +21,6 @@ ARGB::~ARGB() {
 
 void ARGB::begin_routines_init(const ModuleConfig& cfg) {
     DBG_PRINTF(ARGB, "begin_routines_init(): Initialization routines run.\n");
-    // Example auto-init if needed: add(4);
     add(6);
     add(7);
 }
@@ -37,7 +31,6 @@ void ARGB::begin_routines_regular(const ModuleConfig& cfg) {
 }
 
 void ARGB::loop() {
-    // ARGB doesn't need continuous loop calculation like RPM, handled statefully on update.
     if (is_disabled()) return;
 }
 
@@ -56,6 +49,7 @@ std::string ARGB::status(const bool verbose) const {
     std::string s = "--- Active ARGB LEDs ---\n";
     for (const auto* l : leds) {
         s += "  - Pin: " + std::to_string(l->pin) +
+             " (Len: " + std::to_string(DEFAULT_STRIP_LENGTH) + ")" +
              ", State: " + (l->state ? "ON" : "OFF") +
              ", RGB: (" + std::to_string(l->r) + ", " + std::to_string(l->g) + ", " + std::to_string(l->b) + ")\n";
     }
@@ -73,16 +67,23 @@ ARGB::ARGBData* ARGB::get_led(uint8_t pin) const {
 }
 
 void ARGB::free_led(ARGBData* l) {
-    neopixelWrite(l->pin, 0, 0, 0); // Turn off before freeing
+    if (l->strip) {
+        l->strip->clear();
+        l->strip->show(); // Turn off before freeing
+        delete l->strip;
+    }
     delete l;
 }
 
 void ARGB::update_hardware(const ARGBData* l) const {
+    if (!l->strip) return;
+
     if (l->state) {
-        neopixelWrite(l->pin, l->r, l->g, l->b);
+        l->strip->fill(l->strip->Color(l->r, l->g, l->b));
     } else {
-        neopixelWrite(l->pin, 0, 0, 0);
+        l->strip->clear();
     }
+    l->strip->show();
 }
 
 // --- Core API Methods ---
@@ -90,8 +91,12 @@ void ARGB::update_hardware(const ARGBData* l) const {
 bool ARGB::add(uint8_t pin) {
     if (is_disabled() || get_led(pin)) return false;
 
-    ARGBData* l = new ARGBData{pin, false, 255, 255, 255}; // Default OFF, White
+    Adafruit_NeoPixel* new_strip = new Adafruit_NeoPixel(DEFAULT_STRIP_LENGTH, pin, NEO_GRB + NEO_KHZ800);
+    new_strip->begin();
+
+    ARGBData* l = new ARGBData{pin, false, 255, 255, 255, new_strip}; // Default OFF, White
     leds.push_back(l);
+
     update_hardware(l);
     save_all_to_nvs();
     return true;
@@ -136,14 +141,14 @@ bool ARGB::set_rgb(uint8_t pin, uint8_t r, uint8_t g, uint8_t b) {
 
 void ARGB::cli_add(std::string_view args) {
     int pin;
-    if (sscanf(std::string(args).c_str(), "%d", &pin) == 1 && add(pin)) controller.serial_port.print("LED added.");
-    else controller.serial_port.print("Failed to add LED.");
+    if (sscanf(std::string(args).c_str(), "%d", &pin) == 1 && add(pin)) controller.serial_port.print("LED strip added.");
+    else controller.serial_port.print("Failed to add LED strip.");
 }
 
 void ARGB::cli_remove(std::string_view args) {
     int pin;
-    if (sscanf(std::string(args).c_str(), "%d", &pin) == 1 && remove(pin)) controller.serial_port.print("LED removed.");
-    else controller.serial_port.print("Failed to remove LED.");
+    if (sscanf(std::string(args).c_str(), "%d", &pin) == 1 && remove(pin)) controller.serial_port.print("LED strip removed.");
+    else controller.serial_port.print("Failed to remove LED strip.");
 }
 
 void ARGB::cli_set_state(std::string_view args) {
@@ -182,7 +187,11 @@ void ARGB::load_from_nvs() {
     for (int i = 0; i < count; i++) {
         ARGBData temp;
         if (deserialize_led(controller.nvs.read_str(nvs_key, "argb_cfg_" + std::to_string(i)), &temp)) {
-            ARGBData* l = new ARGBData{temp.pin, temp.state, temp.r, temp.g, temp.b};
+
+            Adafruit_NeoPixel* new_strip = new Adafruit_NeoPixel(DEFAULT_STRIP_LENGTH, temp.pin, NEO_GRB + NEO_KHZ800);
+            new_strip->begin();
+
+            ARGBData* l = new ARGBData{temp.pin, temp.state, temp.r, temp.g, temp.b, new_strip};
             leds.push_back(l);
             update_hardware(l);
         }
