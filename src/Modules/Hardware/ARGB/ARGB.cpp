@@ -45,20 +45,25 @@ void ARGB::loop() {
         if (l->transitioning) {
             uint32_t elapsed = now - l->transition_start_time;
 
+            // If state is false, target is black (0,0,0)
+            uint8_t target_r = l->state ? l->r : 0;
+            uint8_t target_g = l->state ? l->g : 0;
+            uint8_t target_b = l->state ? l->b : 0;
+
             if (elapsed >= TRANSITION_DURATION_MS) {
                 // Transition complete
-                l->current_r = l->r;
-                l->current_g = l->g;
-                l->current_b = l->b;
+                l->current_r = target_r;
+                l->current_g = target_g;
+                l->current_b = target_b;
                 l->transitioning = false;
-                if (l->state) update_hardware(l);
+                update_hardware(l);
             } else {
                 // Interpolate
                 float progress = static_cast<float>(elapsed) / TRANSITION_DURATION_MS;
-                l->current_r = l->start_r + (l->r - l->start_r) * progress;
-                l->current_g = l->start_g + (l->g - l->start_g) * progress;
-                l->current_b = l->start_b + (l->b - l->start_b) * progress;
-                if (l->state) update_hardware(l);
+                l->current_r = l->start_r + (target_r - l->start_r) * progress;
+                l->current_g = l->start_g + (target_g - l->start_g) * progress;
+                l->current_b = l->start_b + (target_b - l->start_b) * progress;
+                update_hardware(l);
             }
         }
     }
@@ -136,15 +141,13 @@ void ARGB::free_led(ARGBData* l) {
 
 void ARGB::update_hardware(const ARGBData* l) const {
     if (!l->strip) return;
-    if (l->state) {
-        l->strip->fill(l->strip->Color(
-            static_cast<uint8_t>(l->current_r),
-            static_cast<uint8_t>(l->current_g),
-            static_cast<uint8_t>(l->current_b)
-        ));
-    } else {
-        l->strip->clear();
-    }
+    // Always apply current_r/g/b regardless of state.
+    // If state is false, current_r/g/b will fade to 0 natively.
+    l->strip->fill(l->strip->Color(
+        static_cast<uint8_t>(l->current_r),
+        static_cast<uint8_t>(l->current_g),
+        static_cast<uint8_t>(l->current_b)
+    ));
     l->strip->show();
 }
 
@@ -160,8 +163,11 @@ bool ARGB::add(uint8_t pin) {
     l->pin = pin;
     l->state = false;
     l->r = 255; l->g = 255; l->b = 255;
-    l->current_r = 255.0f; l->current_g = 255.0f; l->current_b = 255.0f;
-    l->start_r = 255; l->start_g = 255; l->start_b = 255;
+
+    // Initial state is off, so current color should be black
+    l->current_r = 0.0f; l->current_g = 0.0f; l->current_b = 0.0f;
+    l->start_r = 0; l->start_g = 0; l->start_b = 0;
+
     l->strip = new_strip;
     l->transitioning = false;
 
@@ -188,7 +194,15 @@ bool ARGB::set_state(uint8_t pin, bool state, bool save_to_nvs) {
     if (ARGBData* l = get_led(pin)) {
         if (l->state != state) {
             l->state = state;
-            update_hardware(l);
+
+            // Capture mid-fade color as the new starting point
+            l->start_r = static_cast<uint8_t>(l->current_r);
+            l->start_g = static_cast<uint8_t>(l->current_g);
+            l->start_b = static_cast<uint8_t>(l->current_b);
+
+            l->transition_start_time = millis();
+            l->transitioning = true;
+
             if (save_to_nvs) save_all_to_nvs();
         }
         return true;
@@ -200,18 +214,16 @@ bool ARGB::set_rgb(uint8_t pin, uint8_t r, uint8_t g, uint8_t b, bool save_to_nv
     if (is_disabled()) return false;
     if (ARGBData* l = get_led(pin)) {
         if (l->r != r || l->g != g || l->b != b) {
-            // If already fading, start the new fade from the current interpolated color
-            l->start_r = static_cast<uint8_t>(l->current_r);
-            l->start_g = static_cast<uint8_t>(l->current_g);
-            l->start_b = static_cast<uint8_t>(l->current_b);
-
-            // Set the new target
             l->r = r; l->g = g; l->b = b;
 
-            // Start the 1-second transition
-            l->transition_start_time = millis();
-            l->transitioning = true;
-
+            // Only visibly fade to the new color if the strip is currently ON
+            if (l->state) {
+                l->start_r = static_cast<uint8_t>(l->current_r);
+                l->start_g = static_cast<uint8_t>(l->current_g);
+                l->start_b = static_cast<uint8_t>(l->current_b);
+                l->transition_start_time = millis();
+                l->transitioning = true;
+            }
             if (save_to_nvs) save_all_to_nvs();
         }
         return true;
@@ -225,7 +237,14 @@ bool ARGB::set_all_state(bool state, bool save_to_nvs) {
     for (auto* l : leds) {
         if (l->state != state) {
             l->state = state;
-            update_hardware(l);
+
+            l->start_r = static_cast<uint8_t>(l->current_r);
+            l->start_g = static_cast<uint8_t>(l->current_g);
+            l->start_b = static_cast<uint8_t>(l->current_b);
+
+            l->transition_start_time = millis();
+            l->transitioning = true;
+
             changed = true;
         }
     }
@@ -238,15 +257,16 @@ bool ARGB::set_all_rgb(uint8_t r, uint8_t g, uint8_t b, bool save_to_nvs) {
     bool changed = false;
     for (auto* l : leds) {
         if (l->r != r || l->g != g || l->b != b) {
-            l->start_r = static_cast<uint8_t>(l->current_r);
-            l->start_g = static_cast<uint8_t>(l->current_g);
-            l->start_b = static_cast<uint8_t>(l->current_b);
-
             l->r = r; l->g = g; l->b = b;
 
-            l->transition_start_time = millis();
-            l->transitioning = true;
+            if (l->state) {
+                l->start_r = static_cast<uint8_t>(l->current_r);
+                l->start_g = static_cast<uint8_t>(l->current_g);
+                l->start_b = static_cast<uint8_t>(l->current_b);
 
+                l->transition_start_time = millis();
+                l->transitioning = true;
+            }
             changed = true;
         }
     }
@@ -282,7 +302,6 @@ void ARGB::cli_print_json(std::string_view args) {
 // --- NVS Storage Helpers ---
 std::string ARGB::serialize_led(const ARGBData* l) const {
     char buf[64];
-    // Serialize target colors, not mid-transition colors
     snprintf(buf, sizeof(buf), "%u %d %u %u %u", l->pin, l->state, l->r, l->g, l->b);
     return std::string(buf);
 }
@@ -297,10 +316,10 @@ bool ARGB::deserialize_led(const std::string& config, ARGBData* l) const {
     l->g = static_cast<uint8_t>(g);
     l->b = static_cast<uint8_t>(b);
 
-    // Sync starting points so it doesn't fade from black on boot
-    l->current_r = l->r; l->start_r = l->r;
-    l->current_g = l->g; l->start_g = l->g;
-    l->current_b = l->b; l->start_b = l->b;
+    // Ensure we don't fade-in dynamically right on boot by syncing states up
+    l->current_r = l->state ? l->r : 0.0f; l->start_r = static_cast<uint8_t>(l->current_r);
+    l->current_g = l->state ? l->g : 0.0f; l->start_g = static_cast<uint8_t>(l->current_g);
+    l->current_b = l->state ? l->b : 0.0f; l->start_b = static_cast<uint8_t>(l->current_b);
 
     return true;
 }

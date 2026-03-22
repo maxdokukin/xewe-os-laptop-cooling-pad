@@ -50,7 +50,7 @@ private:
         uint8_t             pin = 0;
         bool                state = false;
 
-        // Target RGB for NVS and JSON
+        // Target RGB (when state is ON)
         uint8_t             r = 0;
         uint8_t             g = 0;
         uint8_t             b = 0;

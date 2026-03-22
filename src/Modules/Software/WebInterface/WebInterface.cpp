@@ -4,7 +4,6 @@
 #include "../../../SystemController/SystemController.h"
 #include <ArduinoJson.h>
 
-
 WebInterface::WebInterface(SystemController& controller)
       : Module(controller,
                /* module_name         */ "Web_Interface",
@@ -187,9 +186,28 @@ void WebInterface::handle_ui_config_post() {
     if (is_disabled()) return;
     send_cors_headers();
 
+    // Workaround for some core versions misplacing JSON bodies
     String payload = http_server.arg("plain");
+    if (payload.isEmpty()) {
+        for (uint8_t i = 0; i < http_server.args(); i++) {
+            if (http_server.argName(i) == "plain" || http_server.argName(i) == "") {
+                payload = http_server.arg(i);
+                break;
+            }
+        }
+    }
 
+    if (payload.isEmpty()) {
+        http_server.send(400, "application/json", "{\"error\":\"Empty payload\"}");
+        return;
+    }
+
+#if ARDUINOJSON_VERSION_MAJOR >= 7
     JsonDocument doc;
+#else
+    DynamicJsonDocument doc(1024);
+#endif
+
     DeserializationError error = deserializeJson(doc, payload);
 
     if (error) {
@@ -198,34 +216,40 @@ void WebInterface::handle_ui_config_post() {
     }
 
     // 1. Process Curve Edge Colors
-    if (doc["curve_edge_colors"].is<JsonObject>()) {
-        JsonObject colors = doc["curve_edge_colors"];
-
+    JsonObject colors = doc["curve_edge_colors"];
+    if (!colors.isNull()) {
         if (!colors["start"].isNull()) {
-            controller.temp_controller.set_cold_color(colors["start"].as<std::string>());
+            controller.temp_controller.set_cold_color(colors["start"].as<const char*>());
         }
         if (!colors["end"].isNull()) {
-            controller.temp_controller.set_hot_color(colors["end"].as<std::string>());
+            controller.temp_controller.set_hot_color(colors["end"].as<const char*>());
         }
     }
 
     // 2. Process Temp Curve (Clear old, insert new)
-    if (doc["temp_curve"].is<JsonArray>()) {
-        JsonArray incCurve = doc["temp_curve"].as<JsonArray>();
+    JsonArray incCurve = doc["temp_curve"];
+    if (!incCurve.isNull()) {
 
         // STEP A: Fetch the current state and remove all existing points
-        JsonDocument current_state_doc;
-        deserializeJson(current_state_doc, controller.temp_controller.get_json());
+        std::string current_state_str = controller.temp_controller.get_json();
 
-        if (current_state_doc["temp_curve"].is<JsonArray>()) {
-            for (JsonVariant v : current_state_doc["temp_curve"].as<JsonArray>()) {
+#if ARDUINOJSON_VERSION_MAJOR >= 7
+        JsonDocument current_state_doc;
+#else
+        DynamicJsonDocument current_state_doc(1024);
+#endif
+        deserializeJson(current_state_doc, current_state_str);
+
+        JsonArray current_curve = current_state_doc["temp_curve"];
+        if (!current_curve.isNull()) {
+            for (JsonVariant v : current_curve) {
                 if (!v["temp"].isNull()) {
                     controller.temp_controller.remove_point(v["temp"].as<float>());
                 }
             }
         }
 
-        // STEP B: Add the fresh points from the UI payload
+        // STEP B: Add the fresh points from the UI payload safely
         for (JsonVariant v : incCurve) {
             if (!v["temp"].isNull() && !v["speed"].isNull()) {
                 float t = v["temp"].as<float>();

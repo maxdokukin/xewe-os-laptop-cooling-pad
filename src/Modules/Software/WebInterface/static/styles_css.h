@@ -191,7 +191,9 @@ input[type="number"] {
   margin-top: 12px;
   height: 10px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #00c2ff, #ff5a7a);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow: hidden;
 }
 
 .curve-table {
