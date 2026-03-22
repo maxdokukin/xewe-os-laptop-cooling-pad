@@ -157,19 +157,19 @@ std::string Fan::status(const bool verbose) const {
     return s;
 }
 
+// --- Replace your existing Fan::get_json() with this ---
 std::string Fan::get_json() const {
-    // ArduinoJson v7 standard document (memory pool is handled automatically)
     JsonDocument doc;
-
-    // v7 syntax for creating a nested array
     JsonArray json_fans = doc["fans"].to<JsonArray>();
 
     for (const auto* f : fans) {
-        // v7 syntax for appending an object to an array
         JsonObject fan_obj = json_fans.add<JsonObject>();
         fan_obj["pin_pwm"] = f->pin_pwm;
         fan_obj["has_tach"] = f->has_tach;
-        fan_obj["speed"] = f->speed;
+
+        // FIX: Map 0-255 back to 0-100 so the UI displays the point correctly on the line
+        uint8_t speed_pct = static_cast<uint8_t>((static_cast<uint16_t>(f->speed) * 100) / 255);
+        fan_obj["speed"] = speed_pct;
 
         if (f->has_tach) {
             fan_obj["pin_tach"] = f->pin_tach;

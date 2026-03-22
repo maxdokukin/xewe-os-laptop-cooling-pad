@@ -13,7 +13,7 @@ struct TempControllerConfig : public ModuleConfig {
 
 struct TempPoint {
     float temp;
-    uint8_t fan_speed;
+    uint8_t fan_speed; // Always stored as 0-100%
 
     // Sort by temperature ascending
     bool operator<(const TempPoint& other) const {
@@ -35,7 +35,7 @@ public:
     std::string                 status                      (const bool verbose=false)      const override;
 
     // Target API
-    bool                        add_point                   (float temp, uint8_t fan_speed);
+    bool                        add_point                   (float temp, uint8_t fan_speed_pct);
     bool                        remove_point                (float temp);
     uint8_t                     get_target_speed            (float current_temp)            const;
 

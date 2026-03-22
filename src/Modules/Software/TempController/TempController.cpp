@@ -7,7 +7,7 @@ TempController::TempController(SystemController& controller)
 {
     DBG_PRINTF(TempController, "TempController(): Initializing TempController module.\n");
 
-    commands_storage.push_back({ "add_point", "Add a curve point: <temp> <fan_speed>", std::string("$") + lower(module_name) + " add_point 40.5 50", 2, [this](std::string_view args){ cli_add_point(args); } });
+    commands_storage.push_back({ "add_point", "Add a curve point: <temp> <fan_speed_0-100>", std::string("$") + lower(module_name) + " add_point 40.5 50", 2, [this](std::string_view args){ cli_add_point(args); } });
     commands_storage.push_back({ "remove_point", "Remove a curve point by temp: <temp>", std::string("$") + lower(module_name) + " remove_point 40.5", 1, [this](std::string_view args){ cli_remove_point(args); } });
     commands_storage.push_back({ "set_cold", "Set coldest hex color: <#RRGGBB>", std::string("$") + lower(module_name) + " set_cold #00FF00", 1, [this](std::string_view args){ cli_set_cold_color(args); } });
     commands_storage.push_back({ "set_hot", "Set hottest hex color: <#RRGGBB>", std::string("$") + lower(module_name) + " set_hot #FF0000", 1, [this](std::string_view args){ cli_set_hot_color(args); } });
@@ -40,9 +40,12 @@ void TempController::loop() {
         last_update_time = now;
 
         float current_temp = controller.mlx90614.get_temp();
-        uint8_t target_speed = get_target_speed(current_temp);
+        uint8_t target_speed_pct = get_target_speed(current_temp); // Range 0-100
 
-        controller.fan.set_all(target_speed);
+        // Map 0-100% to 0-255 PWM range for the fans
+        uint8_t target_pwm = static_cast<uint8_t>((static_cast<uint16_t>(target_speed_pct) * 255) / 100);
+
+        controller.fan.set_all(target_pwm);
         update_argb_colors(current_temp); // Synchronize LED colors with the temperature
     }
 }
@@ -108,8 +111,10 @@ std::string TempController::status(const bool verbose) const {
         s += "  (No points configured)\n";
     } else {
         for (const auto& p : curve) {
-            char buf[64];
-            snprintf(buf, sizeof(buf), "  - Temp: %.2fC -> Speed: %d\n", p.temp, p.fan_speed);
+            char buf[128];
+            // Display mapped PWM to aid in debugging
+            uint8_t mapped_pwm = static_cast<uint8_t>((static_cast<uint16_t>(p.fan_speed) * 255) / 100);
+            snprintf(buf, sizeof(buf), "  - Temp: %.2fC -> Speed: %d%% (PWM Output: %d)\n", p.temp, p.fan_speed, mapped_pwm);
             s += buf;
         }
     }
@@ -163,6 +168,11 @@ std::string TempController::get_json() const {
 
 bool TempController::add_point(float temp, uint8_t fan_speed) {
     if (is_disabled()) return false;
+
+    // Keep the internal storage range clean between 0-100%
+    if (fan_speed > 100) {
+        fan_speed = 100;
+    }
 
     remove_point(temp); // Overwrite if it exists
 
@@ -231,7 +241,7 @@ std::string TempController::get_hot_color() const { return hot_color; }
 
 void TempController::cli_add_point(std::string_view args) {
     float temp; int speed;
-    if (sscanf(std::string(args).c_str(), "%f %d", &temp, &speed) == 2 && add_point(temp, speed)) {
+    if (sscanf(std::string(args).c_str(), "%f %d", &temp, &speed) == 2 && add_point(temp, static_cast<uint8_t>(speed))) {
         controller.serial_port.print("Curve point added.\n");
     } else {
         controller.serial_port.print("Failed to add curve point.\n");
@@ -283,6 +293,7 @@ void TempController::load_from_nvs() {
         std::string token = curve_data.substr(start, end - start);
         float temp; int speed;
         if (sscanf(token.c_str(), "%f:%d", &temp, &speed) == 2) {
+            if (speed > 100) speed = 100; // Sanity check for old bad saves
             curve.push_back({temp, static_cast<uint8_t>(speed)});
         }
         start = end + 1;
