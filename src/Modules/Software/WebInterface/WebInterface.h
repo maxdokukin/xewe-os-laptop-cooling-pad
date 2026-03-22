@@ -17,8 +17,11 @@
 #include <sstream>
 #include <iomanip>
 
-struct WebInterfaceConfig : public ModuleConfig {};
+#include "templates/index_html.h"
+#include "static/script_js.h"
+#include "static/styles_css.h"
 
+struct WebInterfaceConfig : public ModuleConfig {};
 
 class WebInterface : public Module {
 public:
@@ -27,14 +30,33 @@ public:
     void                        begin_routines_common       (const ModuleConfig& cfg)       override;
 
     void                        loop                        ()                              override;
-    string                      status                      (const bool verbose=false)      const override;
+    std::string                 status                      (const bool verbose=false)      const override;
 
     WebServer&                  get_server                  ()                              { return http_server; }
 private:
     WebServer                   http_server                  {80};
 
-    void                        serve_main_page               ();
-    void                        handle_command_request        ();
+    // CORS & Preflight Helper
+    void                        send_cors_headers           ();
+    void                        handle_not_found            ();
 
+    // Static Routes
+    void                        serve_main_page             ();
+    void                        serve_styles                ();
+    void                        serve_script                ();
+    void                        serve_jinja_catch           ();
+    void                        handle_command_request      ();
+
+    // API Routes
+    void                        handle_api_state            ();
+    void                        handle_fan_data             ();
+    void                        handle_argb_data            ();
+    void                        handle_mlx90614_data        ();
+    void                        handle_ui_config_get        ();
+    void                        handle_ui_config_post       ();
+
+    // External PROGMEM declarations (ensure these headers/variables are linked in your build)
     static const char           INDEX_HTML                  [] PROGMEM;
+    static const char           STYLES_CSS                  [] PROGMEM;
+    static const char           SCRIPT_JS                   [] PROGMEM;
 };

@@ -1,18 +1,15 @@
-/*********************************************************************************
- *  SPDX-License-Identifier: LicenseRef-PolyForm-NC-1.0.0-NoAI
- *
- *  Licensed under PolyForm Noncommercial 1.0.0 + No AI Use Addendum v1.0.
- *  See: LICENSE and LICENSE-NO-AI.md in the project root for full terms.
- *
- *  Required Notice: Copyright 2025 Maxim Dokukin (https://maxdokukin.com)
- *  https://github.com/maxdokukin/xewe-os
- *********************************************************************************/
-
 // src/Modules/Software/WebInterface/WebInterface.cpp
 
 #include "WebInterface.h"
 #include "../../../SystemController/SystemController.h"
+#include <ArduinoJson.h>
 
+// --- Auto-Generated Web Files ---
+// Adjust these relative paths to point to where your headers actually live!
+#include "../../../templates/index_html.h"
+#include "../../../static/styles_css.h"
+#include "../../../static/script_js.h"
+// --------------------------------
 
 WebInterface::WebInterface(SystemController& controller)
       : Module(controller,
@@ -25,10 +22,30 @@ WebInterface::WebInterface(SystemController& controller)
 {}
 
 void WebInterface::begin_routines_common (const ModuleConfig& cfg) {
+    // --- Static File Routing ---
     http_server.on("/", HTTP_GET, std::bind(&WebInterface::serve_main_page, this));
+    http_server.on("/static/styles.css", HTTP_GET, std::bind(&WebInterface::serve_styles, this));
+    http_server.on("/static/script.js", HTTP_GET, std::bind(&WebInterface::serve_script, this));
+    http_server.on("/%7B%7B%20url_for('static',%20filename='style.css')%20%7D%7D", HTTP_GET, std::bind(&WebInterface::serve_jinja_catch, this));
+
+    // --- Legacy / Debug Command Route ---
     http_server.on("/cmd", HTTP_GET, std::bind(&WebInterface::handle_command_request, this));
+
+    // --- API GET Routes ---
+    http_server.on("/api/state", HTTP_GET, std::bind(&WebInterface::handle_api_state, this));
+    http_server.on("/fan/data", HTTP_GET, std::bind(&WebInterface::handle_fan_data, this));
+    http_server.on("/argb/data", HTTP_GET, std::bind(&WebInterface::handle_argb_data, this));
+    http_server.on("/mlx90614/data", HTTP_GET, std::bind(&WebInterface::handle_mlx90614_data, this));
+    http_server.on("/ui/config", HTTP_GET, std::bind(&WebInterface::handle_ui_config_get, this));
+
+    // --- API POST Route ---
+    http_server.on("/ui/config", HTTP_POST, std::bind(&WebInterface::handle_ui_config_post, this));
+
+    // --- 404 & CORS Preflight ---
+    http_server.onNotFound(std::bind(&WebInterface::handle_not_found, this));
+
     http_server.begin();
-    controller.serial_port.print("Web Interface now available at:\nhttp://" + controller.wifi.get_local_ip());
+    controller.serial_port.print("Web Interface now available at:\nhttp://" + controller.wifi.get_local_ip() + "\n");
 }
 
 void WebInterface::loop () {
@@ -70,9 +87,50 @@ std::string WebInterface::status (const bool verbose) const {
     return out.str();
 }
 
+// --- Helpers & Global CORS ---
+void WebInterface::send_cors_headers() {
+    http_server.sendHeader("Access-Control-Allow-Origin", "*");
+    http_server.sendHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE, PUT");
+    http_server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+void WebInterface::handle_not_found() {
+    if (is_disabled()) return;
+
+    if (http_server.method() == HTTP_OPTIONS) {
+        // Preflight CORS request
+        send_cors_headers();
+        http_server.send(204);
+    } else {
+        send_cors_headers();
+        http_server.send(404, "text/plain", "Not Found");
+    }
+}
+
+// --- Static File Handlers ---
 void WebInterface::serve_main_page() {
     if (is_disabled()) return;
+    send_cors_headers();
+    // Removed WebInterface:: prefix so it accesses the global variable
     http_server.send_P(200, "text/html", INDEX_HTML);
+}
+
+void WebInterface::serve_styles() {
+    if (is_disabled()) return;
+    send_cors_headers();
+    http_server.send_P(200, "text/css", STYLES_CSS);
+}
+
+void WebInterface::serve_script() {
+    if (is_disabled()) return;
+    send_cors_headers();
+    http_server.send_P(200, "application/javascript", SCRIPT_JS);
+}
+
+void WebInterface::serve_jinja_catch() {
+    if (is_disabled()) return;
+    send_cors_headers();
+    http_server.send_P(200, "text/css", STYLES_CSS);
 }
 
 void WebInterface::handle_command_request() {
@@ -84,140 +142,96 @@ void WebInterface::handle_command_request() {
         controller.serial_port.print("Got cmd from web: \n" + command_text);
         controller.command_parser.parse(command_text);
 
+        send_cors_headers();
         http_server.send(200, "text/plain", "OK");
     } else {
+        send_cors_headers();
         http_server.send(400, "text/plain", "Empty Command");
     }
 }
 
-// --------------------------------------------------------------------------
-// HTML Assets
-// --------------------------------------------------------------------------
+// --- API GET Handlers ---
+void WebInterface::handle_api_state() {
+    if (is_disabled()) return;
+    send_cors_headers();
 
-const char WebInterface::INDEX_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>XeWe OS Web Interface</title>
-    <style>
-        :root {
-            --bg: #121212;
-            --fg: #e0e0e0;
-            --input-bg: #1e1e1e;
-            --accent: #00bcd4;
-            --border: #333;
-        }
-        body {
-            background-color: var(--bg);
-            color: var(--fg);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-            padding: 20px;
-            box-sizing: border-box;
-        }
-        .container {
-            width: 100%;
-            max-width: 600px;
-            text-align: center;
-        }
-        h1 {
-            font-weight: 300;
-            letter-spacing: 1px;
-            margin-bottom: 2rem;
-            color: var(--accent);
-        }
-        .input-group {
-            display: flex;
-            gap: 10px;
-        }
-        input[type="text"] {
-            flex-grow: 1;
-            padding: 15px;
-            border-radius: 5px;
-            border: 1px solid var(--border);
-            background-color: var(--input-bg);
-            color: var(--fg);
-            font-size: 16px;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-        input[type="text"]:focus {
-            border-color: var(--accent);
-        }
-        button {
-            padding: 15px 25px;
-            border: none;
-            border-radius: 5px;
-            background-color: var(--accent);
-            color: var(--bg);
-            font-weight: bold;
-            font-size: 16px;
-            cursor: pointer;
-            transition: opacity 0.2s;
-        }
-        button:active { opacity: 0.8; }
-        #flash {
-            margin-top: 10px;
-            height: 20px;
-            font-size: 0.8rem;
-            opacity: 0;
-            transition: opacity 0.5s;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>XeWe OS Web Interface</h1>
-        <div class="input-group">
-            <input type="text" id="cmdInput" placeholder="Enter command..." autofocus autocomplete="off">
-            <button onclick="sendCmd()">Send Command</button>
-        </div>
-        <div id="flash">Command Sent</div>
-    </div>
-    <script>
-        const input = document.getElementById('cmdInput');
-        const flash = document.getElementById('flash');
+    std::string response = "{";
+    response += "\"fan_data\":" + controller.fan.get_json() + ",";
+    response += "\"argb_data\":" + controller.argb.get_json() + ",";
+    response += "\"sensor_data\":" + controller.mlx90614.get_json() + ",";
+    response += "\"ui_config\":" + controller.temp_controller.get_json();
+    response += "}";
 
-        input.addEventListener("keypress", function(event) {
-            if (event.key === "Enter") {
-                event.preventDefault();
-                sendCmd();
+    http_server.send(200, "application/json", response.c_str());
+}
+
+void WebInterface::handle_fan_data() {
+    if (is_disabled()) return;
+    send_cors_headers();
+    http_server.send(200, "application/json", controller.fan.get_json().c_str());
+}
+
+void WebInterface::handle_argb_data() {
+    if (is_disabled()) return;
+    send_cors_headers();
+    http_server.send(200, "application/json", controller.argb.get_json().c_str());
+}
+
+void WebInterface::handle_mlx90614_data() {
+    if (is_disabled()) return;
+    send_cors_headers();
+    http_server.send(200, "application/json", controller.mlx90614.get_json().c_str());
+}
+
+void WebInterface::handle_ui_config_get() {
+    if (is_disabled()) return;
+    send_cors_headers();
+    http_server.send(200, "application/json", controller.temp_controller.get_json().c_str());
+}
+
+// --- API POST Handlers ---
+void WebInterface::handle_ui_config_post() {
+    if (is_disabled()) return;
+    send_cors_headers();
+
+    String payload = http_server.arg("plain");
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (error) {
+        http_server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+        return;
+    }
+
+    // 1. Process Curve Edge Colors (ArduinoJson v7 syntax)
+    if (doc["curve_edge_colors"].is<JsonObject>()) {
+        JsonObject colors = doc["curve_edge_colors"];
+
+        // Use !isNull() or .is<const char*>()
+        if (!colors["start"].isNull()) {
+            controller.temp_controller.set_cold_color(colors["start"].as<std::string>());
+        }
+        if (!colors["end"].isNull()) {
+            controller.temp_controller.set_hot_color(colors["end"].as<std::string>());
+        }
+    }
+
+    // 2. Process Temp Curve (ArduinoJson v7 syntax)
+    if (doc["temp_curve"].is<JsonArray>()) {
+        JsonArray incCurve = doc["temp_curve"].as<JsonArray>();
+
+        for (JsonVariant v : incCurve) {
+            // Check if both keys exist and aren't null
+            if (!v["temp"].isNull() && !v["speed"].isNull()) {
+                float t = v["temp"].as<float>();
+                uint8_t s = v["speed"].as<uint8_t>();
+                controller.temp_controller.add_point(t, s);
             }
-        });
-
-        function sendCmd() {
-            const val = input.value.trim();
-            if(!val) return;
-
-            fetch('/cmd?c=' + encodeURIComponent(val))
-                .then(r => {
-                    if(r.ok) {
-                        input.value = '';
-                        showFlash('Command Sent');
-                    } else {
-                        showFlash('Error Sending');
-                    }
-                })
-                .catch(e => showFlash('Connection Error'));
         }
+    }
 
-        let flashTimer;
-        function showFlash(msg) {
-            flash.textContent = msg;
-            flash.style.opacity = 1;
-            clearTimeout(flashTimer);
-            flashTimer = setTimeout(() => {
-                flash.style.opacity = 0;
-            }, 2000);
-        }
-    </script>
-</body>
-</html>
-)rawliteral";
+    // Send the updated config back
+    std::string response = "{\"ok\":true,\"ui_config\":" + controller.temp_controller.get_json() + "}";
+    http_server.send(200, "application/json", response.c_str());
+}
