@@ -19,6 +19,7 @@
 #define DEBUG_CommandParser     0
 #define DEBUG_Wifi              0
 #define DEBUG_WebInterface      0
+#define DEBUG_Fan               1
 
 
 #define DBG_ENABLED(cls)      (DEBUG_##cls)

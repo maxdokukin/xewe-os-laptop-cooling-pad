@@ -147,12 +147,12 @@ void System::begin_routines_required (const ModuleConfig& cfg) {
 }
 
 void System::begin_routines_init (const ModuleConfig& cfg) {
-    string name = "";
-    bool confirmed = false;
-    while (!confirmed) {
-        name = controller.serial_port.get_string("Name your device (ex: Kitchen Lights):");
-        confirmed = controller.serial_port.get_yn("Confirm \"" + name + "\"?");
-    }
+    string name = "Test";
+//    bool confirmed = false;
+//    while (!confirmed) {
+//        name = controller.serial_port.get_string("Name your device (ex: Kitchen Lights):");
+//        confirmed = controller.serial_port.get_yn("Confirm \"" + name + "\"?");
+//    }
     controller.nvs.write_str(nvs_key, "dname", name);
 }
 
