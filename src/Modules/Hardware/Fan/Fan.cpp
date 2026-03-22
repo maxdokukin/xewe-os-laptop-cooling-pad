@@ -14,7 +14,7 @@ void IRAM_ATTR Fan::tach_isr_handler(void* arg) {
 }
 
 Fan::Fan(SystemController& controller)
-      : Module(controller, "Fan", "Controls PWM fans and monitors tachometers", "fan", false, true, true)
+      : Module(controller, "Fan", "Controls PWM fans and monitors tachometers", "fan", true, false, true)
 {
     DBG_PRINTF(Fan, "Fan(): Initializing Fan module.\n");
 
@@ -29,9 +29,22 @@ Fan::~Fan() {
     DBG_PRINTF(Fan, "~Fan(): Destroying module, clearing memory.\n");
     for (auto fan : fans) {
         if (fan->has_tach) detachInterrupt(digitalPinToInterrupt(fan->pin_tach));
+        ledcWrite(fan->pin_pwm, 0);
+        ledcDetach(fan->pin_pwm);
         delete fan;
     }
     fans.clear();
+}
+
+void Fan::begin_routines_init(const ModuleConfig& cfg) {
+    DBG_PRINTF(Fan, "begin_routines_init(): Auto-initializing hardcoded fans.\n");
+
+    // Auto-initialize standard dual fans
+    // Fan 1: PWM Pin 3, Tach Pin 0
+    add_w_tach(3, 0);
+
+    // Fan 2: PWM Pin 10, Tach Pin 1
+    add_w_tach(10, 1);
 }
 
 void Fan::begin_routines_regular(const ModuleConfig& cfg) {
@@ -41,6 +54,9 @@ void Fan::begin_routines_regular(const ModuleConfig& cfg) {
     ui_rounding = fan_cfg.ui_rounding;
 
     DBG_PRINTF(Fan, "begin_routines_regular(): Called. Enabled: %d, Loaded NVS: %d\n", is_enabled(), loaded_from_nvs);
+
+    // Note: Since init runs first, these fans are created and saved to NVS.
+    // If NVS has saved speeds from a previous boot, loading from NVS here will restore them.
     if (is_enabled() && !loaded_from_nvs) {
         load_from_nvs();
     }
@@ -100,7 +116,8 @@ void Fan::reset(const bool verbose, const bool do_restart, const bool keep_enabl
     nvs_clear_all();
     for (auto fan : fans) {
         if (fan->has_tach) detachInterrupt(digitalPinToInterrupt(fan->pin_tach));
-        analogWrite(fan->pin_pwm, 0);
+        ledcWrite(fan->pin_pwm, 0);
+        ledcDetach(fan->pin_pwm);
         delete fan;
     }
     fans.clear();
@@ -152,8 +169,8 @@ bool Fan::add(uint8_t pwm_pin) {
     new_fan->pin_pwm = pwm_pin;
     new_fan->last_calc_time = millis();
 
-    pinMode(new_fan->pin_pwm, OUTPUT);
-    analogWrite(new_fan->pin_pwm, new_fan->speed);
+    ledcAttach(new_fan->pin_pwm, PWM_FREQ, PWM_RES);
+    ledcWrite(new_fan->pin_pwm, new_fan->speed);
 
     fans.push_back(new_fan);
     save_all_to_nvs(); // Automatically sync state
@@ -170,10 +187,10 @@ bool Fan::add_w_tach(uint8_t pwm_pin, uint8_t tach_pin) {
     new_fan->has_tach = true;
     new_fan->last_calc_time = millis();
 
-    pinMode(new_fan->pin_pwm, OUTPUT);
+    ledcAttach(new_fan->pin_pwm, PWM_FREQ, PWM_RES);
     pinMode(new_fan->pin_tach, INPUT_PULLUP);
     attachInterruptArg(digitalPinToInterrupt(new_fan->pin_tach), Fan::tach_isr_handler, new_fan, FALLING);
-    analogWrite(new_fan->pin_pwm, new_fan->speed);
+    ledcWrite(new_fan->pin_pwm, new_fan->speed);
 
     fans.push_back(new_fan);
     save_all_to_nvs(); // Automatically sync state
@@ -188,7 +205,10 @@ bool Fan::remove(uint8_t pwm_pin) {
     if (it != fans.end()) {
         FanData* target = *it;
         if (target->has_tach) detachInterrupt(digitalPinToInterrupt(target->pin_tach));
-        analogWrite(pwm_pin, 0);
+
+        ledcWrite(pwm_pin, 0);
+        ledcDetach(pwm_pin);
+
         delete target;
         fans.erase(it, fans.end());
 
@@ -204,7 +224,7 @@ bool Fan::set(uint8_t pwm_pin, uint8_t speed) {
     for (auto fan : fans) {
         if (fan->pin_pwm == pwm_pin) {
             fan->speed = speed;
-            analogWrite(fan->pin_pwm, fan->speed);
+            ledcWrite(fan->pin_pwm, fan->speed);
             save_all_to_nvs(); // Automatically sync state
             return true;
         }
@@ -217,7 +237,7 @@ bool Fan::set_all(uint8_t speed) {
 
     for (auto fan : fans) {
         fan->speed = speed;
-        analogWrite(fan->pin_pwm, fan->speed);
+        ledcWrite(fan->pin_pwm, fan->speed);
     }
 
     save_all_to_nvs(); // Sync state once for all fans
@@ -330,7 +350,15 @@ bool Fan::deserialize_fan(const std::string& config, FanData* fan) const {
 
 void Fan::load_from_nvs() {
     if (is_disabled()) return;
-    for (auto fan : fans) delete fan;
+
+    // Clear out the ones we hardcoded in `begin_routines_init` if NVS actually has saved data.
+    // This allows NVS speeds (from a previous session) to properly overwrite the defaults.
+    for (auto fan : fans) {
+        if (fan->has_tach) detachInterrupt(digitalPinToInterrupt(fan->pin_tach));
+        ledcWrite(fan->pin_pwm, 0);
+        ledcDetach(fan->pin_pwm);
+        delete fan;
+    }
     fans.clear();
 
     int fan_count = controller.nvs.read_uint8(nvs_key, "fan_count", 0);
@@ -341,12 +369,14 @@ void Fan::load_from_nvs() {
 
         FanData* loaded_fan = new FanData();
         if (!config_str.empty() && deserialize_fan(config_str, loaded_fan)) {
-            pinMode(loaded_fan->pin_pwm, OUTPUT);
+
+            ledcAttach(loaded_fan->pin_pwm, PWM_FREQ, PWM_RES);
+
             if (loaded_fan->has_tach) {
                 pinMode(loaded_fan->pin_tach, INPUT_PULLUP);
                 attachInterruptArg(digitalPinToInterrupt(loaded_fan->pin_tach), Fan::tach_isr_handler, loaded_fan, FALLING);
             }
-            analogWrite(loaded_fan->pin_pwm, loaded_fan->speed);
+            ledcWrite(loaded_fan->pin_pwm, loaded_fan->speed);
             fans.push_back(loaded_fan);
         } else {
             delete loaded_fan;

@@ -17,6 +17,7 @@ public:
     explicit                    Fan                         (SystemController& controller);
     virtual                     ~Fan                        ();
 
+    void                        begin_routines_init         (const ModuleConfig& cfg)       override;
     void                        begin_routines_regular      (const ModuleConfig& cfg)       override;
     void                        loop                        ()                              override;
     void                        reset                       (const bool verbose=false,
@@ -76,4 +77,8 @@ private:
     float                       ema_alpha                   {0.3f};
     uint32_t                    absolute_max_rpm            {10000};
     uint32_t                    ui_rounding                 {10};
+
+    // Hardware PWM Constants
+    static constexpr uint32_t   PWM_FREQ                    = 25000;
+    static constexpr uint8_t    PWM_RES                     = 8;
 };

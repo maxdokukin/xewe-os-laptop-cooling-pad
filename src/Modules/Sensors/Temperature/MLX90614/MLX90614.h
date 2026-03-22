@@ -4,6 +4,8 @@
 #include <string>
 
 struct MLX90614Config : public ModuleConfig {
+    uint8_t  sda_pin = 255;              // 255 = Unconfigured. User MUST set this or NVS must have it.
+    uint8_t  scl_pin = 255;              // 255 = Unconfigured. User MUST set this or NVS must have it.
     uint8_t  default_i2c_address = 0x5A; // Default fallback
     uint32_t poll_interval_ms = 500;     // How often to read from the I2C bus
     float    error_temp = 255.0f;        // Value to return if the sensor drops offline
@@ -14,6 +16,7 @@ public:
     explicit                    MLX90614                    (SystemController& controller);
     virtual                     ~MLX90614                   ();
 
+    void                        begin_routines_init         (const ModuleConfig& cfg)       override;
     void                        begin_routines_regular      (const ModuleConfig& cfg)       override;
     void                        loop                        ()                              override;
     void                        reset                       (const bool verbose=false,
@@ -39,6 +42,7 @@ private:
     void                        cli_read                    (std::string_view args);
     void                        cli_scan                    (std::string_view args);
     void                        cli_set_addr                (std::string_view args);
+    void                        cli_set_pins                (std::string_view args);
 
     // Cached values
     float                       cached_object_temp          {0.0f};
@@ -48,6 +52,8 @@ private:
     bool                        loaded_from_nvs             {false};
 
     // Config Cache
+    uint8_t                     sda_pin                     {255};
+    uint8_t                     scl_pin                     {255};
     uint8_t                     i2c_address                 {0x5A};
     uint32_t                    poll_interval_ms            {500};
     float                       error_temp                  {255.0f};
