@@ -39,6 +39,29 @@ void ARGB::begin_routines_regular(const ModuleConfig& cfg) {
 
 void ARGB::loop() {
     if (is_disabled()) return;
+
+    uint32_t now = millis();
+    for (auto* l : leds) {
+        if (l->transitioning) {
+            uint32_t elapsed = now - l->transition_start_time;
+
+            if (elapsed >= TRANSITION_DURATION_MS) {
+                // Transition complete
+                l->current_r = l->r;
+                l->current_g = l->g;
+                l->current_b = l->b;
+                l->transitioning = false;
+                if (l->state) update_hardware(l);
+            } else {
+                // Interpolate
+                float progress = static_cast<float>(elapsed) / TRANSITION_DURATION_MS;
+                l->current_r = l->start_r + (l->r - l->start_r) * progress;
+                l->current_g = l->start_g + (l->g - l->start_g) * progress;
+                l->current_b = l->start_b + (l->b - l->start_b) * progress;
+                if (l->state) update_hardware(l);
+            }
+        }
+    }
 }
 
 void ARGB::reset(const bool verbose, const bool do_restart, const bool keep_enabled) {
@@ -58,7 +81,8 @@ std::string ARGB::status(const bool verbose) const {
         s += "  - Pin: " + std::to_string(l->pin) +
              " (Len: " + std::to_string(DEFAULT_STRIP_LENGTH) + ")" +
              ", State: " + (l->state ? "ON" : "OFF") +
-             ", RGB: (" + std::to_string(l->r) + ", " + std::to_string(l->g) + ", " + std::to_string(l->b) + ")\n";
+             ", Target RGB: (" + std::to_string(l->r) + ", " + std::to_string(l->g) + ", " + std::to_string(l->b) + ")" +
+             (l->transitioning ? " [Transitioning]" : "") + "\n";
     }
     s += "------------------------";
 
@@ -112,8 +136,15 @@ void ARGB::free_led(ARGBData* l) {
 
 void ARGB::update_hardware(const ARGBData* l) const {
     if (!l->strip) return;
-    if (l->state) l->strip->fill(l->strip->Color(l->r, l->g, l->b));
-    else l->strip->clear();
+    if (l->state) {
+        l->strip->fill(l->strip->Color(
+            static_cast<uint8_t>(l->current_r),
+            static_cast<uint8_t>(l->current_g),
+            static_cast<uint8_t>(l->current_b)
+        ));
+    } else {
+        l->strip->clear();
+    }
     l->strip->show();
 }
 
@@ -125,7 +156,15 @@ bool ARGB::add(uint8_t pin) {
     Adafruit_NeoPixel* new_strip = new Adafruit_NeoPixel(DEFAULT_STRIP_LENGTH, pin, NEO_GRB + NEO_KHZ800);
     new_strip->begin();
 
-    ARGBData* l = new ARGBData{pin, false, 255, 255, 255, new_strip};
+    ARGBData* l = new ARGBData();
+    l->pin = pin;
+    l->state = false;
+    l->r = 255; l->g = 255; l->b = 255;
+    l->current_r = 255.0f; l->current_g = 255.0f; l->current_b = 255.0f;
+    l->start_r = 255; l->start_g = 255; l->start_b = 255;
+    l->strip = new_strip;
+    l->transitioning = false;
+
     leds.push_back(l);
 
     update_hardware(l);
@@ -161,8 +200,18 @@ bool ARGB::set_rgb(uint8_t pin, uint8_t r, uint8_t g, uint8_t b, bool save_to_nv
     if (is_disabled()) return false;
     if (ARGBData* l = get_led(pin)) {
         if (l->r != r || l->g != g || l->b != b) {
+            // If already fading, start the new fade from the current interpolated color
+            l->start_r = static_cast<uint8_t>(l->current_r);
+            l->start_g = static_cast<uint8_t>(l->current_g);
+            l->start_b = static_cast<uint8_t>(l->current_b);
+
+            // Set the new target
             l->r = r; l->g = g; l->b = b;
-            if (l->state) update_hardware(l);
+
+            // Start the 1-second transition
+            l->transition_start_time = millis();
+            l->transitioning = true;
+
             if (save_to_nvs) save_all_to_nvs();
         }
         return true;
@@ -189,8 +238,15 @@ bool ARGB::set_all_rgb(uint8_t r, uint8_t g, uint8_t b, bool save_to_nvs) {
     bool changed = false;
     for (auto* l : leds) {
         if (l->r != r || l->g != g || l->b != b) {
+            l->start_r = static_cast<uint8_t>(l->current_r);
+            l->start_g = static_cast<uint8_t>(l->current_g);
+            l->start_b = static_cast<uint8_t>(l->current_b);
+
             l->r = r; l->g = g; l->b = b;
-            if (l->state) update_hardware(l);
+
+            l->transition_start_time = millis();
+            l->transitioning = true;
+
             changed = true;
         }
     }
@@ -226,6 +282,7 @@ void ARGB::cli_print_json(std::string_view args) {
 // --- NVS Storage Helpers ---
 std::string ARGB::serialize_led(const ARGBData* l) const {
     char buf[64];
+    // Serialize target colors, not mid-transition colors
     snprintf(buf, sizeof(buf), "%u %d %u %u %u", l->pin, l->state, l->r, l->g, l->b);
     return std::string(buf);
 }
@@ -239,6 +296,12 @@ bool ARGB::deserialize_led(const std::string& config, ARGBData* l) const {
     l->r = static_cast<uint8_t>(r);
     l->g = static_cast<uint8_t>(g);
     l->b = static_cast<uint8_t>(b);
+
+    // Sync starting points so it doesn't fade from black on boot
+    l->current_r = l->r; l->start_r = l->r;
+    l->current_g = l->g; l->start_g = l->g;
+    l->current_b = l->b; l->start_b = l->b;
+
     return true;
 }
 
@@ -254,7 +317,11 @@ void ARGB::load_from_nvs() {
             Adafruit_NeoPixel* new_strip = new Adafruit_NeoPixel(DEFAULT_STRIP_LENGTH, temp.pin, NEO_GRB + NEO_KHZ800);
             new_strip->begin();
 
-            ARGBData* l = new ARGBData{temp.pin, temp.state, temp.r, temp.g, temp.b, new_strip};
+            ARGBData* l = new ARGBData();
+            *l = temp; // Copy parsed properties
+            l->strip = new_strip;
+            l->transitioning = false;
+
             leds.push_back(l);
             update_hardware(l);
         }

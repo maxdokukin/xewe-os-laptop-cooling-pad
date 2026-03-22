@@ -5,6 +5,7 @@
 #include <string>
 #include <algorithm>
 #include <cstdio>
+#include <Arduino.h> // Included for millis()
 
 // Include the Adafruit NeoPixel & ArduinoJson libraries
 #include <Adafruit_NeoPixel.h>
@@ -43,13 +44,29 @@ public:
 
 private:
     static constexpr uint16_t   DEFAULT_STRIP_LENGTH        = 12;
+    static constexpr uint32_t   TRANSITION_DURATION_MS      = 1000;
 
     struct ARGBData {
         uint8_t             pin = 0;
         bool                state = false;
+
+        // Target RGB for NVS and JSON
         uint8_t             r = 0;
         uint8_t             g = 0;
         uint8_t             b = 0;
+
+        // Active animation values
+        float               current_r = 0.0f;
+        float               current_g = 0.0f;
+        float               current_b = 0.0f;
+
+        uint8_t             start_r = 0;
+        uint8_t             start_g = 0;
+        uint8_t             start_b = 0;
+
+        uint32_t            transition_start_time = 0;
+        bool                transitioning = false;
+
         Adafruit_NeoPixel* strip = nullptr;
     };
 
