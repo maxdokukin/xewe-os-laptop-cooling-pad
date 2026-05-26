@@ -104,7 +104,7 @@ void TempController::reset(const bool verbose, const bool do_restart, const bool
     curve.push_back({27.0f, 100});
     curve.push_back({32.0f, 100});
 
-    cold_color = "#0000FF";
+    cold_color = "#00FFFF";
     hot_color = "#FF0000";
     Module::reset(verbose, do_restart, keep_enabled);
 }
@@ -286,7 +286,7 @@ void TempController::load_from_nvs() {
     curve.clear();
 
     // Load hex colors
-    cold_color = controller.nvs.read_str(nvs_key, "cold_color", "#0000FF");
+    cold_color = controller.nvs.read_str(nvs_key, "cold_color", "#00FFFF");
     hot_color = controller.nvs.read_str(nvs_key, "hot_color", "#FF0000");
 
     // Load temperature curve as a single string, applying a default curve if no data exists yet
