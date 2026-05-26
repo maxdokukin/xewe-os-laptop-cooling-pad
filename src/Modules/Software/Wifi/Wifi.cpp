@@ -69,7 +69,7 @@ void Wifi::begin_routines_regular (const ModuleConfig& cfg) {
 
 void Wifi::loop () {
     if (WiFi.getMode() == WIFI_AP) {
-        delay(1000);
+        // delay(1000);
         return;
     }
 
