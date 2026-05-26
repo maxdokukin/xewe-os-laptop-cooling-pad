@@ -147,7 +147,7 @@ void System::begin_routines_required (const ModuleConfig& cfg) {
 }
 
 void System::begin_routines_init (const ModuleConfig& cfg) {
-    string name = "Test";
+    string name = "XeWe Laptop Chiller";
 //    bool confirmed = false;
 //    while (!confirmed) {
 //        name = controller.serial_port.get_string("Name your device (ex: Kitchen Lights):");

@@ -6,14 +6,14 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>XeWe Laptop Cooler</title>
+  <title>XeWe Laptop Chiller</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <div class="page">
     <header class="header">
       <div>
-        <h1>XeWe Laptop Cooler</h1>
+        <h1>XeWe Laptop Chiller</h1>
       </div>
     </header>
 
