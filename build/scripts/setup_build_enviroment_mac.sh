@@ -37,6 +37,63 @@ have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 is_macos() { [[ "$(uname -s)" == "Darwin" ]]; }
 
+is_apple_silicon() {
+  is_macos || return 1
+
+  # Handles both native arm64 shells and terminals accidentally running under Rosetta.
+  if [[ "$(uname -m)" == "arm64" ]]; then
+    return 0
+  fi
+
+  [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" == "1" ]]
+}
+
+rosetta_can_run_x86_64() {
+  /usr/bin/arch -x86_64 /usr/bin/true >/dev/null 2>&1
+}
+
+install_rosetta() {
+  echo "➡️  Installing Rosetta for Intel-only Arduino helper tools..." >&2
+
+  # Non-interactive path first. If that fails on a newer macOS, fall back to Apple's
+  # normal interactive installer, where the user may need to type A to accept.
+  if /usr/sbin/softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "⚠️  Non-interactive Rosetta install failed. Retrying interactive install..." >&2
+  /usr/sbin/softwareupdate --install-rosetta
+}
+
+ensure_rosetta() {
+  if ! is_macos; then
+    return 0
+  fi
+
+  if ! is_apple_silicon; then
+    echo "✅ Rosetta not needed: this is not an Apple Silicon Mac." >&2
+    return 0
+  fi
+
+  if rosetta_can_run_x86_64; then
+    echo "✅ Rosetta available: x86_64 helper tools can run." >&2
+    return 0
+  fi
+
+  echo "⚠️  Rosetta is not available, but Arduino may need it for bundled Intel-only tools." >&2
+  if confirm "Install Rosetta now?"; then
+    install_rosetta
+    rosetta_can_run_x86_64 || {
+      echo "❌ Rosetta install completed, but x86_64 execution still fails." >&2
+      exit 1
+    }
+    echo "✅ Rosetta installed and verified." >&2
+  else
+    echo "❌ Rosetta is required on Apple Silicon for some Arduino toolchains, including the ctags failure you hit." >&2
+    exit 1
+  fi
+}
+
 ensure_brew_shellenv() {
   if [[ -x /opt/homebrew/bin/brew ]]; then
     eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -74,6 +131,24 @@ ensure_brew() {
   fi
 }
 
+ensure_git() {
+  if have_cmd git; then
+    echo "✅ git found: $(command -v git)" >&2
+    return 0
+  fi
+
+  echo "⚠️  git not found." >&2
+  if confirm "Install git via Homebrew now?"; then
+    brew update
+    brew install git
+    have_cmd git || { echo "❌ git still not found after install." >&2; exit 1; }
+    echo "✅ git installed." >&2
+  else
+    echo "❌ git is required to clone Arduino libraries." >&2
+    exit 1
+  fi
+}
+
 ensure_arduino_cli() {
   if have_cmd arduino-cli; then
     echo "✅ arduino-cli found: $(arduino-cli version 2>/dev/null || command -v arduino-cli)" >&2
@@ -90,6 +165,29 @@ ensure_arduino_cli() {
     echo "❌ Arduino CLI is required for compile.sh." >&2
     exit 1
   fi
+}
+
+ensure_arduino_ctags_runnable() {
+  if ! is_macos || ! is_apple_silicon; then
+    return 0
+  fi
+
+  local ctags_bin="${HOME}/Library/Arduino15/packages/builtin/tools/ctags/5.8-arduino11/ctags"
+
+  if [[ ! -x "${ctags_bin}" ]]; then
+    return 0
+  fi
+
+  if "${ctags_bin}" --version >/dev/null 2>&1; then
+    echo "✅ Arduino bundled ctags is runnable." >&2
+    return 0
+  fi
+
+  echo "❌ Arduino bundled ctags exists but still cannot run:" >&2
+  echo "   ${ctags_bin}" >&2
+  echo "   Try removing the cached tool and re-running setup:" >&2
+  echo "   rm -rf \"${HOME}/Library/Arduino15/packages/builtin/tools/ctags/5.8-arduino11\"" >&2
+  exit 1
 }
 
 ensure_esp32_core() {
@@ -372,7 +470,7 @@ write_build_config() {
   local arduino_cli_path
   local brew_path
   local git_path
-  local venv_python
+  local venv_python_bin
   local venv_pip
   local project_root
   local project_name
@@ -451,7 +549,10 @@ EOF
 
 main() {
   ensure_brew
+  ensure_rosetta
+  ensure_git
   ensure_arduino_cli
+  ensure_arduino_ctags_runnable
   ensure_esp32_core
   ensure_libraries
 
