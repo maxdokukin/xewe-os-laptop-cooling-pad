@@ -1,0 +1,2 @@
+https://github.com/adafruit/adafruit_neopixel
+https://github.com/bblanchon/ArduinoJson
