@@ -47,7 +47,12 @@ Wifi::Wifi(SystemController& controller)
 }
 
 void Wifi::begin_routines_required (const ModuleConfig& cfg) {
-    WiFi.mode(WIFI_STA);
+    std::string mode = controller.nvs.read_str(nvs_key, "mode");
+    if (mode == "ap") {
+        WiFi.mode(WIFI_AP);
+    } else {
+        WiFi.mode(WIFI_STA);
+    }
     WiFi.setHostname(controller.system.get_device_name().c_str());
     disconnect(false);
     delay(100);
@@ -63,6 +68,11 @@ void Wifi::begin_routines_regular (const ModuleConfig& cfg) {
 }
 
 void Wifi::loop () {
+    if (WiFi.getMode() == WIFI_AP) {
+        delay(1000);
+        return;
+    }
+
     // enforce Wifi connection if the module is active
     while (WiFi.status() != WL_CONNECTED) {
         // Optimized: Use get_yn with 1 attempt (retry_count=1) to act as a timed prompt
@@ -82,6 +92,7 @@ void Wifi::loop () {
 
 void Wifi::reset (const bool verbose, const bool do_restart, const bool keep_enabled) {
     disconnect(false);
+    controller.nvs.write_str(nvs_key, "mode", "");
     Module::reset(verbose, do_restart, keep_enabled);
 }
 
@@ -92,6 +103,18 @@ std::string Wifi::status(bool verbose) const {
     Module::status(verbose);
 
     std::string status_string {};
+    if (WiFi.getMode() == WIFI_AP) {
+        auto ip = WiFi.softAPIP();
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+        status_string = "Hotspot Mode active\nSSID: " + controller.system.get_device_name()
+                      + "\nLocal ip: " + std::string(buf);
+        if (verbose) {
+            controller.serial_port.print(status_string);
+        }
+        return status_string;
+    }
+
     if (is_disconnected(true)) {
         status_string = "disconnected";
     } else if (is_connected()) {
@@ -108,9 +131,17 @@ std::string Wifi::status(bool verbose) const {
 bool Wifi::connect(bool prompt_for_credentials) {
     DBG_PRINTF(Wifi, "connect(prompt_for_credentials=%d)\n", prompt_for_credentials);
     if (is_disabled(true)) return false;
-    if (is_connected(true)) return true;
 
-    // First debug is already present
+    std::string mode = controller.nvs.read_str(nvs_key, "mode");
+    if (mode == "ap") {
+        std::string ap_ssid = controller.system.get_device_name();
+        std::string ap_pwd = controller.nvs.read_str(nvs_key, "psw");
+        WiFi.mode(WIFI_AP);
+        WiFi.softAP(ap_ssid.c_str(), ap_pwd.c_str());
+        return true;
+    }
+
+    if (is_connected(true)) return true;
 
     std::string ssid, pwd;
     if (read_stored_credentials(ssid, pwd)) {
@@ -136,6 +167,30 @@ bool Wifi::connect(bool prompt_for_credentials) {
     }
 
     if (prompt_for_credentials) {
+        uint8_t choice = controller.serial_port.get_menu_choice(
+            "Select WiFi Mode:",
+            {
+                "Connect to existing network",
+                "Hotspot mode"
+            }
+        );
+
+        if (choice == 2) {
+            controller.nvs.write_str(nvs_key, "mode", "ap");
+            std::string ap_ssid = controller.system.get_device_name();
+            char pwd_buf[9];
+            snprintf(pwd_buf, sizeof(pwd_buf), "%08ld", random(10000000, 100000000));
+            std::string ap_pwd(pwd_buf);
+            controller.nvs.write_str(nvs_key, "psw", ap_pwd);
+
+            controller.serial_port.printf("\nStarting Hotspot...\nSSID: %s\nPassword: %s\n", ap_ssid.c_str(), ap_pwd.c_str());
+            WiFi.mode(WIFI_AP);
+            WiFi.softAP(ap_ssid.c_str(), ap_pwd.c_str());
+            return true;
+        } else {
+            controller.nvs.write_str(nvs_key, "mode", "sta");
+        }
+
         while (is_disconnected()) {
             DBG_PRINTLN(Wifi, "connect(): prompting for credentials");
             uint8_t prompt_status = prompt_credentials(ssid, pwd);
@@ -146,7 +201,7 @@ bool Wifi::connect(bool prompt_for_credentials) {
                 controller.serial_port.print("Terminated WiFi setup");
                 return false;
             } else if (prompt_status == 2) { // Rescan
-                DBG_PRINTLN(Wifi, "connect(): invalid choice, retrying");
+                    DBG_PRINTLN(Wifi, "connect(): invalid choice, retrying");
                 continue;
             } else if (prompt_status == 3) { // Invalid
                 DBG_PRINTLN(Wifi, "connect(): invalid choice, retrying");
@@ -363,6 +418,7 @@ uint8_t Wifi::prompt_credentials(std::string& ssid, std::string& password) {
 bool Wifi::is_connected(bool verbose) const {
     DBG_PRINTF(Wifi, "is_connected(verbose=%d)\n", verbose);
     if (is_disabled()) return false;
+    if (WiFi.getMode() == WIFI_AP) return true;
     bool conn = (WiFi.status() == WL_CONNECTED);
     if (verbose && conn) {
         DBG_PRINTLN(Wifi, "is_connected(): true");
@@ -375,6 +431,7 @@ bool Wifi::is_connected(bool verbose) const {
 bool Wifi::is_disconnected(bool verbose) const {
     DBG_PRINTF(Wifi, "is_disconnected(verbose=%d)\n", verbose);
     if (is_disabled()) return true;
+    if (WiFi.getMode() == WIFI_AP) return false;
     bool conn = (WiFi.status() == WL_CONNECTED);
     if (verbose && !conn) {
         DBG_PRINTLN(Wifi, "is_disconnected(): true");
