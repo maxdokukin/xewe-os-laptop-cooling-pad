@@ -98,6 +98,12 @@ void TempController::reset(const bool verbose, const bool do_restart, const bool
     DBG_PRINTF(TempController, "reset(): Resetting TempController module.\n");
     nvs_clear_all();
     curve.clear();
+
+    // Default curve points
+    curve.push_back({22.0f, 0});
+    curve.push_back({27.0f, 100});
+    curve.push_back({32.0f, 100});
+
     cold_color = "#0000FF";
     hot_color = "#FF0000";
     Module::reset(verbose, do_restart, keep_enabled);
@@ -283,8 +289,8 @@ void TempController::load_from_nvs() {
     cold_color = controller.nvs.read_str(nvs_key, "cold_color", "#0000FF");
     hot_color = controller.nvs.read_str(nvs_key, "hot_color", "#FF0000");
 
-    // Load temperature curve as a single string (Format: temp:speed;temp:speed;)
-    std::string curve_data = controller.nvs.read_str(nvs_key, "curve_data", "");
+    // Load temperature curve as a single string, applying a default curve if no data exists yet
+    std::string curve_data = controller.nvs.read_str(nvs_key, "curve_data", "22.0:0;27.0:100;32.0:100;");
 
     size_t start = 0;
     size_t end = curve_data.find(';');

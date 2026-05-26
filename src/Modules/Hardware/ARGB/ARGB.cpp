@@ -1,6 +1,7 @@
 #include "ARGB.h"
 #include "../../../SystemController/SystemController.h"
 #include "../../../Debug.h"
+#include <cmath>
 
 ARGB::ARGB(SystemController& controller)
       : Module(controller, "ARGB", "Adafruit NeoPixel ARGB controller", "argb", true, false, true)
@@ -40,29 +41,39 @@ void ARGB::begin_routines_regular(const ModuleConfig& cfg) {
 void ARGB::loop() {
     if (is_disabled()) return;
 
+    // Calculate Delta Time for fluid frame-rate independent rendering
+    static uint32_t last_time = millis();
     uint32_t now = millis();
+    float dt = (now - last_time) / 1000.0f;
+    last_time = now;
+
+    if (dt <= 0.0f) return;
+    if (dt > 0.1f) dt = 0.1f; // Cap delta to prevent visual jumps on lag spikes
+
     for (auto* l : leds) {
         if (l->transitioning) {
-            uint32_t elapsed = now - l->transition_start_time;
-
-            // If state is false, target is black (0,0,0)
             uint8_t target_r = l->state ? l->r : 0;
             uint8_t target_g = l->state ? l->g : 0;
             uint8_t target_b = l->state ? l->b : 0;
 
-            if (elapsed >= TRANSITION_DURATION_MS) {
-                // Transition complete
+            float r_diff = target_r - l->current_r;
+            float g_diff = target_g - l->current_g;
+            float b_diff = target_b - l->current_b;
+
+            // Arrived at target color?
+            if (std::abs(r_diff) < 0.5f && std::abs(g_diff) < 0.5f && std::abs(b_diff) < 0.5f) {
                 l->current_r = target_r;
                 l->current_g = target_g;
                 l->current_b = target_b;
-                l->transitioning = false;
+                l->transitioning = false; // Snap and sleep
                 update_hardware(l);
             } else {
-                // Interpolate
-                float progress = static_cast<float>(elapsed) / TRANSITION_DURATION_MS;
-                l->current_r = l->start_r + (target_r - l->start_r) * progress;
-                l->current_g = l->start_g + (target_g - l->start_g) * progress;
-                l->current_b = l->start_b + (target_b - l->start_b) * progress;
+                // Continuous Exponential Moving Average (EMA) Transition
+                // It organically glides towards the target color without rigid timers
+                float speed = 8.0f; // Multiplier. Higher = faster convergence
+                l->current_r += r_diff * speed * dt;
+                l->current_g += g_diff * speed * dt;
+                l->current_b += b_diff * speed * dt;
                 update_hardware(l);
             }
         }
@@ -141,8 +152,6 @@ void ARGB::free_led(ARGBData* l) {
 
 void ARGB::update_hardware(const ARGBData* l) const {
     if (!l->strip) return;
-    // Always apply current_r/g/b regardless of state.
-    // If state is false, current_r/g/b will fade to 0 natively.
     l->strip->fill(l->strip->Color(
         static_cast<uint8_t>(l->current_r),
         static_cast<uint8_t>(l->current_g),
@@ -164,10 +173,7 @@ bool ARGB::add(uint8_t pin) {
     l->state = false;
     l->r = 255; l->g = 255; l->b = 255;
 
-    // Initial state is off, so current color should be black
     l->current_r = 0.0f; l->current_g = 0.0f; l->current_b = 0.0f;
-    l->start_r = 0; l->start_g = 0; l->start_b = 0;
-
     l->strip = new_strip;
     l->transitioning = false;
 
@@ -194,15 +200,7 @@ bool ARGB::set_state(uint8_t pin, bool state, bool save_to_nvs) {
     if (ARGBData* l = get_led(pin)) {
         if (l->state != state) {
             l->state = state;
-
-            // Capture mid-fade color as the new starting point
-            l->start_r = static_cast<uint8_t>(l->current_r);
-            l->start_g = static_cast<uint8_t>(l->current_g);
-            l->start_b = static_cast<uint8_t>(l->current_b);
-
-            l->transition_start_time = millis();
-            l->transitioning = true;
-
+            l->transitioning = true; // Flaps the flag, EMA loop handles the rest smoothly
             if (save_to_nvs) save_all_to_nvs();
         }
         return true;
@@ -215,15 +213,7 @@ bool ARGB::set_rgb(uint8_t pin, uint8_t r, uint8_t g, uint8_t b, bool save_to_nv
     if (ARGBData* l = get_led(pin)) {
         if (l->r != r || l->g != g || l->b != b) {
             l->r = r; l->g = g; l->b = b;
-
-            // Only visibly fade to the new color if the strip is currently ON
-            if (l->state) {
-                l->start_r = static_cast<uint8_t>(l->current_r);
-                l->start_g = static_cast<uint8_t>(l->current_g);
-                l->start_b = static_cast<uint8_t>(l->current_b);
-                l->transition_start_time = millis();
-                l->transitioning = true;
-            }
+            l->transitioning = true;
             if (save_to_nvs) save_all_to_nvs();
         }
         return true;
@@ -237,14 +227,7 @@ bool ARGB::set_all_state(bool state, bool save_to_nvs) {
     for (auto* l : leds) {
         if (l->state != state) {
             l->state = state;
-
-            l->start_r = static_cast<uint8_t>(l->current_r);
-            l->start_g = static_cast<uint8_t>(l->current_g);
-            l->start_b = static_cast<uint8_t>(l->current_b);
-
-            l->transition_start_time = millis();
             l->transitioning = true;
-
             changed = true;
         }
     }
@@ -258,15 +241,7 @@ bool ARGB::set_all_rgb(uint8_t r, uint8_t g, uint8_t b, bool save_to_nvs) {
     for (auto* l : leds) {
         if (l->r != r || l->g != g || l->b != b) {
             l->r = r; l->g = g; l->b = b;
-
-            if (l->state) {
-                l->start_r = static_cast<uint8_t>(l->current_r);
-                l->start_g = static_cast<uint8_t>(l->current_g);
-                l->start_b = static_cast<uint8_t>(l->current_b);
-
-                l->transition_start_time = millis();
-                l->transitioning = true;
-            }
+            l->transitioning = true;
             changed = true;
         }
     }
@@ -316,10 +291,11 @@ bool ARGB::deserialize_led(const std::string& config, ARGBData* l) const {
     l->g = static_cast<uint8_t>(g);
     l->b = static_cast<uint8_t>(b);
 
-    // Ensure we don't fade-in dynamically right on boot by syncing states up
-    l->current_r = l->state ? l->r : 0.0f; l->start_r = static_cast<uint8_t>(l->current_r);
-    l->current_g = l->state ? l->g : 0.0f; l->start_g = static_cast<uint8_t>(l->current_g);
-    l->current_b = l->state ? l->b : 0.0f; l->start_b = static_cast<uint8_t>(l->current_b);
+    // Lock starting current values
+    l->current_r = l->state ? l->r : 0.0f;
+    l->current_g = l->state ? l->g : 0.0f;
+    l->current_b = l->state ? l->b : 0.0f;
+    l->transitioning = false;
 
     return true;
 }
@@ -339,7 +315,6 @@ void ARGB::load_from_nvs() {
             ARGBData* l = new ARGBData();
             *l = temp; // Copy parsed properties
             l->strip = new_strip;
-            l->transitioning = false;
 
             leds.push_back(l);
             update_hardware(l);
